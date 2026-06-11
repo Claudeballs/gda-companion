@@ -15,7 +15,7 @@ function blankSide(role) {
   return {
     role, nation: "—", type: "inf", grade: "Line", formation: "line", unformed: false,
     garrison: false, mob: false, supports: [], general: false,
-    brigade: null, unitCas: null, chargeCas: null,
+    brigade: null, unitCas: null, fireCas: 0,
     chargingOn: false, heavyCav: false, lancers: false, campaignCav: false,
     narrowFront: false, flanked: false, flankRear: false,
     dice: [0, 0]
@@ -66,12 +66,16 @@ function computeChargeMods(side, opp) {
       mods.push({ label: "Lancers vs infantry", val: CHARGE_MODS.charger.lancersVsInf });
     if (side.type === "cav" && side.campaignCav)
       mods.push({ label: "Campaign cavalry vs Heavy/Battle", val: CHARGE_MODS.charger.campaignCavVsHeavy });
-    if (side.chargeCas) {
-      let v = CHARGE_MODS.charger.chargeCasualties[side.chargeCas];
-      if (side.chargeCas === "2" && g === "Elite" && CHARGE_MODS.charger.chargeCasualties.eliteImmune2) {
-        mods.push({ label: "Charge casualties 2 (Elite — immune)", val: 0 });
-      } else if (v) {
-        mods.push({ label: "Charge casualties " + side.chargeCas, val: v });
+    // Charge casualties come from DEFENSIVE FIRE (closing + supporting
+    // fire after the move to 3") — entered as a count, band derived.
+    const fc = side.fireCas || 0;
+    const band = fc >= 5 ? "5+" : fc >= 3 ? "3-4" : fc === 2 ? "2" : null;
+    if (band) {
+      const v = CHARGE_MODS.charger.chargeCasualties[band];
+      if (band === "2" && g === "Elite" && CHARGE_MODS.charger.chargeCasualties.eliteImmune2) {
+        mods.push({ label: "Defensive-fire casualties " + fc + " (Elite — immune to the first band)", val: 0 });
+      } else {
+        mods.push({ label: "Defensive-fire casualties " + fc + " (band " + band + ")", val: v });
       }
     }
   }
@@ -114,6 +118,11 @@ function chrReset() {
 function buildCharge() {
   CH = Store.get("charge_state", null) || { charger: blankSide("charger"), defender: blankSide("defender") };
   CH.charger.role = "charger"; CH.defender.role = "defender";
+  // migrate pre-13-Jun saved state: band string → casualty count
+  if (CH.charger.fireCas === undefined) {
+    CH.charger.fireCas = { "2": 2, "3-4": 3, "5+": 5 }[CH.charger.chargeCas] || 0;
+    delete CH.charger.chargeCas;
+  }
   // session-scoped roll state never persists (dice can't be replayed from storage)
   chrReset();
 
@@ -123,6 +132,18 @@ function buildCharge() {
     h("div", { class: "duelgrid" },
       chargeSideCard(CH.charger, CH.defender),
       chargeSideCard(CH.defender, CH.charger)),
+    h("div", { class: "card", id: "charge-fire-stage" },
+      h("h2", {}, "Defensive fire — before the test"),
+      h("p", { class: "note" },
+        "Chargers are at the 3\" point; reactions are done (square test / opportunity charge). " +
+        "Now the defender's CLOSING and SUPPORTING fire happens: a screened target's whole skirmish " +
+        "screen evades and fires first (vs infantry only), then close-order defensive fire. " +
+        "ALL casualties — screen plus close order — count toward the charger's test."),
+      h("button", { class: "bigbtn alt", onclick: () => showTab("fire") }, "Resolve the fire on the Fire tab →"),
+      h("div", { class: "flagrow" },
+        h("span", { class: "sub", style: "max-width:180px;" }, "Casualties taken by the CHARGER from defensive fire"),
+        makeStepper(0, 15, CH.charger.fireCas || 0, v => { CH.charger.fireCas = v; refreshCharge(); }).el),
+      h("div", { class: "sub", id: "firecas-derived" })),
     h("div", { class: "card", id: "charge-roll-card" },
       h("h2", {}, "Roll the charge"),
       h("div", { class: "duelgrid" },
@@ -239,17 +260,13 @@ function chargeSideCard(side, opp) {
     [{ v: "hesitant", l: "Hesitant", sub: "−1", allowOff: true }, { v: "faltering", l: "Faltering", sub: "−1", allowOff: true }, { v: "demoralised", l: "Demoralised", sub: "−1", allowOff: true }],
     side.brigade, v => { side.brigade = v; refreshCharge(); }));
 
-  card.append(h("div", { class: "grouplabel" }, "Casualties on unit"));
+  card.append(h("div", { class: "grouplabel" }, "Casualties ALREADY on unit (fatigue, before this charge)"));
   card.append(singleSelect(
     [{ v: null, l: "0–3" }, { v: "4+", l: "4–7", sub: "−1" }, { v: "8+", l: "8+", sub: "−2" }],
     side.unitCas, v => { side.unitCas = v; refreshCharge(); }));
-
-  if (isC) {
-    card.append(h("div", { class: "grouplabel" }, "Charge casualties (this charge)"));
-    card.append(singleSelect(
-      [{ v: null, l: "0–1" }, { v: "2", l: "2", sub: "−1" }, { v: "3-4", l: "3–4", sub: "−2" }, { v: "5+", l: "5+", sub: "−3" }],
-      side.chargeCas, v => { side.chargeCas = v; refreshCharge(); }));
-  }
+  // charge casualties from defensive fire are entered in the
+  // "Defensive fire" stage of the roll card, not here — they don't
+  // exist until the fire has happened.
 
   card.append(
     h("div", { class: "netrow" },
@@ -392,6 +409,17 @@ function refreshCharge() {
       const sup = mods.filter(m => m.suppressed);
       supNote.textContent = sup.length ? "⚠ " + sup.map(m => m.label).join(" · ") : "";
     }
+  }
+
+  // defensive-fire derived band readout
+  const fcEl = $("#firecas-derived");
+  if (fcEl) {
+    const fc = CH.charger.fireCas || 0;
+    let mod = fc >= 5 ? -3 : fc >= 3 ? -2 : fc === 2 ? -1 : 0;
+    let note = "";
+    if (fc === 2 && effGrade(CH.charger) === "Elite") { mod = 0; note = " (Elite shrugs the first band)"; }
+    fcEl.textContent = fc <= 1 ? "0–1 casualties → no penalty on the test."
+      : fc + " casualties → " + (mod ? fmtMod(mod) : "no penalty") + " on the charge test" + note + ".";
   }
 
   // roll panels
