@@ -6,6 +6,12 @@
 <meta name="theme-color" content="#14161c">
 <title>GdA Companion</title>
 <link rel="stylesheet" href="css/app.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GdA">
 </head>
 <body>
 <header id="hdr">
@@ -46,5 +52,12 @@
 <script src="js/fire.js"></script>
 <script src="js/tracker.js"></script>
 <script src="js/content.js"></script>
+<script>
+// PWA: offline cache + home-screen install. file:// has no SW support —
+// the app still works there, just without the offline cache layer.
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
 </body>
 </html>

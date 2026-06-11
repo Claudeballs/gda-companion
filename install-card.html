@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GdA Companion — install card</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; background: #fff; color: #1c1c1c;
+         max-width: 700px; margin: 0 auto; padding: 28px 20px; }
+  h1 { font-size: 34px; margin: 0 0 4px; } h1 span { color: #9a7415; }
+  .lead { font-size: 19px; color: #444; margin: 0 0 22px; }
+  .step { display: flex; gap: 18px; align-items: flex-start; margin: 26px 0; }
+  .n { flex: 0 0 54px; height: 54px; border-radius: 50%; background: #1c1c1c; color: #fff;
+       font-size: 30px; font-weight: bold; display: flex; align-items: center; justify-content: center; }
+  .step h2 { font-size: 26px; margin: 4px 0 6px; }
+  .step p { font-size: 20px; line-height: 1.45; margin: 0; }
+  #qr { width: 260px; height: 260px; margin: 10px auto; display: block; }
+  .url { text-align: center; font-size: 22px; font-weight: bold; letter-spacing: .02em; margin: 4px 0 18px; }
+  .tip { background: #f5f1e4; border-left: 5px solid #9a7415; padding: 12px 16px; font-size: 18px; margin-top: 26px; }
+  @media print { .noprint { display: none; } body { padding: 10px; } }
+</style>
+</head>
+<body>
+<h1><span>GdA</span> Companion — get it on your phone</h1>
+<p class="lead">One minute, three steps, no accounts, nothing to pay. Once it's done you'll have
+an app icon on your phone that works even with no signal.</p>
+
+<div class="step">
+  <div class="n">1</div>
+  <div>
+    <h2>Point your camera at this square</h2>
+    <p>Open the phone's <b>Camera</b> like you're taking a photo. Hold it over the square below.
+       A little button appears — <b>tap it</b>.</p>
+  </div>
+</div>
+
+<div id="qr"><!-- QR SVG injected at deploy --></div>
+<p class="url" id="urlline"><!-- URL injected at deploy --></p>
+
+<div class="step">
+  <div class="n">2</div>
+  <div>
+    <h2>Add it to your home screen</h2>
+    <p><b>iPhone:</b> tap the <b>Share</b> button (the square with an arrow, bottom of the screen),
+       scroll down, tap <b>“Add to Home Screen”</b>, then <b>Add</b>.<br><br>
+       <b>Android:</b> tap the <b>three dots</b> (top right), then
+       <b>“Add to Home screen”</b>, then <b>Add</b>.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">3</div>
+  <div>
+    <h2>That's it — look for the gold GdA icon</h2>
+    <p>From now on, just tap the icon like any other app.
+       It works at the club even if the Wi-Fi is down.</p>
+  </div>
+</div>
+
+<div class="tip">
+  <b>If the camera trick doesn't work:</b> open the phone's internet browser
+  (Safari or Chrome), type the address printed under the square, and carry on from step 2.
+  Or hand the phone to Andy.
+</div>
+
+<p class="noprint" style="margin-top:30px;"><button onclick="print()" style="font-size:20px;padding:12px 24px;">🖨️ Print this card</button></p>
+</body>
+</html>
