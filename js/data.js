@@ -1,8 +1,8 @@
 /* ============================================================
-   GdA Companion — embedded rules data.
-   Content checked by Andy against rulebook + official FAQ.
-   Items flagged VERIFY are §10 — show ⚠ unverified badge.
-   DO NOT edit values without umpire sign-off.
+   GdA Companion — embedded rules data (SPEC v2, 2026-06-12).
+   §10 content is VERIFIED against rulebook & FAQ by the umpire.
+   Only the two §10.7 items remain open. DO NOT edit values
+   without umpire sign-off. Flag inconsistencies, never "fix".
    ============================================================ */
 
 const CHARGE_MODS = {
@@ -26,6 +26,17 @@ const CHARGE_MODS = {
   supports: "Each Elite/Veteran/Line support grants one D6 re-roll. Recruit, massed-column, square, line-vs-cavalry or unformed supports grant a re-roll at −1. Artillery, skirmishers and garrisons NEVER provide a support re-roll (artillery contributes defensive fire only). Cavalry cannot support infantry; infantry cannot support cavalry; both can support artillery. Flank supports must be within 3\" when the charge is declared (level with, behind, or in front of the lead unit)."
 };
 
+/* §3.2b — interaction logic the calculator ENFORCES (not footnotes) */
+const CHARGE_LOGIC = [
+  "If the defender is charged in FLANK or REAR: suppress the infantry column/square-vs-cavalry +2 — a column charged in flank/rear gets NO column bonus (it still takes the −4).",
+  "'Column of mob' (a retiring, retreating or routing unformed mass): NO column bonus ever, regardless of facing.",
+  "Unformed Square vs cavalry: +2 (square) and −2 (unformed) BOTH apply — net 0. The app must show both lines, not silently cancel.",
+  "Recruit grade penalty is 0 (not −1) while the Recruit unit is in column or square.",
+  "Elite units ignore the first charge-casualty band (the −1 at 2 casualties); −2/−3 bands still apply.",
+  "Skirmisher-screened target: the screen evades (fires first only vs infantry chargers); ALL casualties — screen plus close-order defensive fire — count toward the charger's charge-casualty modifier.",
+  "Faltering brigade: cannot DECLARE charges; a charge declared before the falter continues at −1 (the brigade-state chip)."
+];
+
 const CHARGE_RESULTS = [
   { by: "6+",    min: 6,   max: 99,  infVsInfArty: "Victory! / Def Rout 1D6",           cavVsCav: "Victory! / Def Rout 1D6",         cavVsInfArty: "Victory! 1 cas / Ridden Down" },
   { by: "3–5",   min: 3,   max: 5,   infVsInfArty: "Take Ground / Def Retreat 1D3",     cavVsCav: "Élan / Def Melee Unformed",       cavVsInfArty: "Victory! 1 cas / Ridden Down" },
@@ -41,6 +52,7 @@ const CHARGE_RESULT_NOTES = [
   "Charges are SIMULTANEOUS: all phasing chargers move to the 3\" point BEFORE any defensive fire or reactions (FAQ)."
 ];
 
+/* ---------- fire (§4 + §10.3 verified two-part model) ---------- */
 const FIRE_RULES = {
   halving: "HALVE casualties (round down) if: (1) the FIRER is in Column or Square, or (2) the TARGET is a BUA/Strongpoint garrison. Both apply together: a column firing at a garrison halves twice (quarter effect).",
   skirmishScreens: "Skirmisher screens block line of sight for close-order musketry, but ARTILLERY ignores skirmisher screens for targeting — they give no protection to close-order troops behind them.",
@@ -51,29 +63,120 @@ const FIRE_RULES = {
   grandBattery: "Grand Battery (1813, max 2 batteries, 2 caissons): spend a caisson → BOTH batteries Assault Fire under ONE tasking. Caissons spent → one battery per turn may Assault Fire."
 };
 
-/* §10 VERIFY: base CD by firer size/range is NOT in the spec — until
-   Andy signs off the firing tables, the Fire tab takes base CD as an
-   input wheel and applies the verified halving chain + modifiers. */
-const FIRE_MODS = [
-  { id: "unformed",   label: "Firer unformed",            cd: -1 },
-  { id: "firstVolley",label: "First Volley",              cd: +1 },
-  { id: "bnGun",      label: "Battalion gun",             cd: +1 },
-  { id: "lbCanister", label: "Large battery, canister",   cd: +1 },
-  { id: "assault",    label: "Assault Fire tasking",      cd: +2 }
-];
+/* §10.3 — VERIFIED firing model: 2D6 score (with NEGATIVE score
+   modifiers) → results-line base casualties, PLUS bonus Casualty Dice
+   (each hitting 4–6). Halving applies to the FINAL total, round down. */
+const FIRING_TABLE = { // modified 2D6 score → result. — = no effect.
+  scores:          ["≤3", "4", "5", "6", "7", "8", "9", "10-11", "12"],
+  superiorVolley:  ["FD", "1", "1", "2", "3", "3/DT", "4/DT", "5/DT", "6/DT"],
+  standardVolley:  ["FD", "FD", "1", "1", "2", "3", "3/DT", "4/DT", "5/DT"],
+  inferiorVolley:  ["FD", "FD", "FD if Recruit", "1", "1", "2", "2/DT", "3/DT", "4/DT"],
+  batteryClose:    ["FC", "½", "1", "2", "2/DT", "3/DT", "3/DT", "4/DT", "5/DT"],
+  batteryEffective:["FC", "—", "1", "1", "1", "2", "2/DT", "3/DT", "4/DT"],
+  batteryLong:     ["FC", "—", "½", "½", "½", "1", "1/DT", "2/DT", "3/DT"]
+};
+const FIRING_LINES = {
+  superiorVolley:   { label: "Superior volley",  who: "Elite/Veteran/British (Large & Standard, not moved, FD intact)" },
+  standardVolley:   { label: "Standard volley",  who: "Line (non-British), not moved, FD intact" },
+  inferiorVolley:   { label: "Inferior volley",  who: "Recruit / Small / moved / Unformed / lost FD / rough terrain / column of companies" },
+  batteryClose:     { label: "Battery — canister/close", who: "" },
+  batteryEffective: { label: "Battery — effective",      who: "" },
+  batteryLong:      { label: "Battery — long",           who: "" }
+};
+const FIRE_MODIFIERS = {
+  infantryCD: { elite: "+1 CD", largeBattalionInLine: "+1 CD", columnAt3inFresh: "+1 CD vs infantry column at 3\" if firers Fresh", targetSquareOrMassedColumns: "+2 CD" },
+  infantryScore: { casualties4: "−1", casualties8: "−2 (10+ for Elite/Large)", targetDeployedBatteryOrSkirmishers: "−2", targetInCover: "−1", unformed: "−2 and Inferior line" },
+  artilleryCD: { eliteBattery: "+1 CD (also inflicts DT)", largeBatteryCanister: "+1 CD", assaultFire: "+2 CD", targetColumnAtEffectiveOrClose: "+1 CD", targetSquareOrMassedColumns: "+2 CD" },
+  artilleryScore: { casualties4: "−1", casualties6: "−2 (8+ for Elite/Large)", movedOrUnlimbered: "−2", unformed: "−2", lowOnAmmunition: "−2 (each)", targetDeployedBatteryOrSkirmishers: "−2", targetInCover: "−1" },
+  flags: "FD = firer loses Fire Discipline (fires Inferior; no move/formation change except into Square until stationary one Movement phase). DT = target takes Discipline Test. FC = battery loses 1 Fatigue Casualty (2 on Assault Fire; Elite & Large batteries ignore the FIRST FC). Double 6 = Destiny. Artillery double 1 = Low on Ammunition. Bounce-through: unit within 6\" directly behind the target suffers 1 CD."
+};
 
+/* ---------- §10.1 movement (VERIFIED, rulebook p56) ---------- */
+const MOVEMENT = {
+  infantry: { line: '6"', column: '9"', square: '4" (Discipline Test if enemy cavalry within 9")', skirmish: '12"', evadeRetire: 'up to 12"', retreatRout: 'up to 18" — fall back on supports' },
+  cavalry: { line: '15"', skirmishEvadeRetire: 'up to 21"', retreatRout: 'up to 21"' },
+  horseArtillery: '15" (otherwise as cavalry)',
+  footArtillery: '9", evade/retire up to 12"',
+  generals: '18" (incl. corps commanders); once attached, move with the unit',
+  chargeBonus: { infantry: '+3"', cavalry: '+6"' },
+  stepBack: { infantry: '3"', cavalry: '9"', manhandleOrWheelBattery: 'up to 3"' },
+  moveToFlank: 'all units, max 3" side-step', oblique: 'up to 45°, normal speed',
+  aboutFace: 'classed as a formation change; if charged, only Elite/Veteran may attempt (Discipline Test first)',
+  minimumCloseDistance: 'no voluntary advance closer than 3" to enemy Close Order units outside the Charge/Melee phases',
+  unformed: 'may only Reform on the spot OR Retire; voluntary Retire costs 1 Fatigue Casualty (skirmishers/Cossacks exempt)',
+  roughTerrain: 'Close Order infantry HALF SPEED (and fire on Inferior line); squares may not enter; cavalry may not enter voluntarily (forced = 1 casualty); artillery limbered via road/track only, no deploying; formation changes take a FULL Movement phase; skirmishers & retiring/retreating/routing infantry unaffected',
+  severeTerrain: 'skirmishers only, at half speed; retiring/retreating/routing non-skirmishers entering it DISPERSE',
+  fallingBackThroughGaps: 'Unformed/Retiring units pass through any gap between formed friends without unforming them; Retreating/Routing units likewise AFTER their initial compulsory 6" straight back'
+};
+
+/* ---------- §10.2 ranges (VERIFIED, rulebook p76) ---------- */
+const RANGES = {
+  musketry: { square: '0–3"', volley: '0–9"', skirmish: '0–12"' },
+  artillery: {
+    '3-4pdr': { canister: '0–12"', effective: '12–21"', long: '21–50"' },
+    '6-9pdr': { canister: '0–12"', effective: '12–24"', long: '24–55"' },
+    '12pdr':  { canister: '0–15"', effective: '15–30"', long: '30–65"' }
+  }
+};
+
+/* ---------- §10.4 faltering brigade (VERIFIED, QRS) ---------- */
+const FALTER_TRIGGER = "Falter if: a brigade unit ROUTED, or 2+ brigade units RETREATING. A Demoralised brigade that Falters DISPERSES.";
 const FALTER_TABLE = { // dice: 6–5 / 4 / 3 / 2 / 1
-  Elite:       ["Obey", "Obey", "Obey", "Retire", "Retire"],
-  VeteranLine: ["Obey", "Rally", "Retire", "Retire", "Sauve!"],
-  Recruit:     ["Obey", "Rally", "Retire", "Sauve!", "Sauve!"]
+  Elite:       ["Obey Orders", "Obey Orders", "Rally", "Retire", "Retire"],
+  VeteranLine: ["Obey Orders", "Rally", "Retire", "Retire", "Sauve Qui Peut!"],
+  Recruit:     ["Obey Orders", "Rally", "Retire", "Sauve Qui Peut!", "Sauve Qui Peut!"]
 };
 const FALTER_DICE_LABELS = ["6–5", "4", "3", "2", "1"];
+const FALTER_RESULTS = {
+  "Rally": "Retreating units rally (Routed units Disperse). Remove Falter marker; brigade is Hesitant this turn. Units within 9\" of formed enemy Close Order must immediately Step Back (garrisons stay).",
+  "Retire": "Retreating & Routed units Disperse. All remaining units immediately Retire (n/a in a Strongpoint); each Close Order unit loses 1 casualty; the Skirmish Line loses 1 full base. Artillery withdraws limbered; foot artillery goes Low on Ammo (ignore if deployed 18\"+ behind the brigade front line). Brigade remains Faltering.",
+  "Sauve Qui Peut!": "Brigade loses its ADC permanently. Retreating/Routed units Disperse; Skirmish Line Disperses. All remaining units Retreat and lose 2 casualties each; artillery withdraws limbered, Low on Ammo (same 18\" exemption). Brigade remains Faltering."
+};
 const FALTER_NOTES = [
   "Obey: retreating/routing units rally immediately but are UNFORMED — they stay Unformed until a full Movement phase reforms them.",
   "A brigade auto-disperses on faltering only if it was ALREADY Demoralised when the dispersals happened; becoming Demoralised and faltering simultaneously does NOT auto-disperse.",
   "Units within 9\" of formed friends when retiring matter — an Unformed unit that cannot reach friendly support within its 20\" Retire becomes ROUTED."
 ];
 
+/* ---------- §10.5 casualty levels & dispersal points (VERIFIED, p14) ---------- */
+const CASUALTY_LEVELS = [ // Fresh / 1st (−1) / 2nd (−2) / Disperse
+  { unit: "Elite infantry/cavalry",          fresh: "0–3", l1: "4+", l2: "10+", disperse: "15+" },
+  { unit: "Large infantry/cavalry",          fresh: "0–3", l1: "4+", l2: "10+", disperse: "15+ (12+ if Recruits)" },
+  { unit: "Standard infantry/cavalry",       fresh: "0–3", l1: "4+", l2: "8+",  disperse: "12+ (10+ if Recruits)" },
+  { unit: "Small infantry/cavalry",          fresh: "0–3", l1: "4+", l2: "8+",  disperse: "10+" },
+  { unit: "Elite or Large (12-gun) battery", fresh: "0–3", l1: "4+", l2: "8+",  disperse: "10+" },
+  { unit: "Standard battery",                fresh: "0–3", l1: "4+", l2: "6+",  disperse: "8+" }
+];
+/* numeric dispersal defaults for the melee Pyrrhic check quick-set */
+const DISPERSE_POINTS = [
+  { label: "Elite", pt: 15 }, { label: "Large", pt: 15 }, { label: "Large Recruit", pt: 12 },
+  { label: "Standard", pt: 12 }, { label: "Std Recruit", pt: 10 }, { label: "Small", pt: 10 },
+  { label: "Elite/Large bty", pt: 10 }, { label: "Std battery", pt: 8 }
+];
+
+/* ---------- §10.6 melee (VERIFIED, QRS) ---------- */
+const MELEE_CD = { infantry: 5, cavalry: 5, cossacks: 4, artillery: 3, hitOn: "4,5,6", minimum: "1 CD after modifiers" };
+const MELEE_MODS = {
+  unit: { eliteInfOrCav: "+1 CD", heavyCavalry: "+2 CD", formedLancersVsCavalry: "+1 CD (n/a vs Cuirassiers)", formedLancersVsFoot: "+2 CD", largeUnit: "+1 CD (n/a in column of companies, square, or a battery)", smallUnit: "−1 CD" },
+  situation: { generalAttachedWithGlory: "+1 CD (no benefit without Glory; Risk to General if unit retires/retreats)", perGradeAboveOpponent: "+1 CD per grade above opponent/all opponents", elan: "+1 CD (+2 CD if infantry in Attack Column)", casualties: "4+/8+ (10+ Elite-Large) = −1/−2 CD", batteryCasualties: "4+/6+ (8+) = −1/−2 CD" },
+  position: { unformed: "−1 CD", attackingBUAFirstRound: "−1 CD", attackingStrongpoint: "−1 CD", attackingRedoubtOrUpSteepSlope: "−1 CD", attackedInFlankOrRear: "−1 CD AND only negative CD modifiers apply (ignore ALL positives)", artilleryHitInFlankOrRear: "DISPERSES" }
+};
+const MELEE_RESULTS = { // casualty difference
+  "3+":   { cavCavInfInf: "Winner Takes Ground / Losers ROUT*", cavVsInf: "Winner Takes Ground / losing infantry DISPERSE, losing cavalry Retreat", infVsBUA: "Winner Takes Ground / Losers Retreat" },
+  "2":    { cavCavInfInf: "Winner: infantry Take Ground, cavalry Return to Own Lines / Losers Retreat*", cavVsInf: "(as band 1)", infVsBUA: "(as band 1)" },
+  "1":    { cavCavInfInf: "Winner Takes Ground UNFORMED / Losers Retreat*", cavVsInf: "Winner Takes Ground Unformed / losing infantry Retreat*, losing cavalry Return to Own Lines", infVsBUA: "1st round Fight On! / 2nd round Loser Retreats" },
+  "DRAW": { cavCavInfInf: "Infantry vs Infantry: FIREFIGHT! · Cavalry vs Cavalry: Fight On!", cavVsInf: "Infantry Stand* / Cavalry Return to Own Lines", infVsBUA: "1st round Fight On! / 2nd round Attackers Retire" }
+};
+const MELEE_MATCHUPS = { cavCavInfInf: "Cav v Cav · Inf v Inf", cavVsInf: "Cav vs Inf", infVsBUA: "Inf vs BUA" };
+const MELEE_NOTES = [
+  "Fight On! = fight a 2nd round or Retire; DEFENDER chooses first. If the opponent Retires, Take the Ground Unformed. If both Fight On, ALL units in the melee are now Unformed and may be reinforced by units within support distance. Maximum 2 melee rounds per Melee phase; a 2nd draw = Attacker Retires.",
+  "Firefight! = Attacker retires 3\"; all units in the melee are Unformed; defending artillery limbers and retires.",
+  "*Artillery uses the infantry results columns; Routing or Retreating artillery DISPERSES.",
+  "Pyrrhic Victory: a winner reaching its OWN dispersal point flips the result — the loser becomes the winner, ignores retreat/rout, takes the ground Unformed.",
+  "Round-1 participants: lead unit + flank supports that physically reached base-to-base. Rear supports and other reinforcements join from round 2 (formed, in-command, within support distance)."
+];
+
+/* ---------- nations / terrain / tactics (unchanged content) ---------- */
 const NATIONS = {
   France: [
     "Command: French column (best). Flexible group — brigadiers attach freely.",
@@ -123,23 +226,35 @@ const TERRAIN = {
     "Forwards tasking: +3D6\" to a move, or +1D6\" to a charge (one roll for the brigade).",
     "Charge On: infantry +3D6\", cavalry +5D6\".",
     "Out-of-command unit choosing to Retire = voluntary retire — costs 1 fatigue casualty.",
-    "Full movement-rate table: SEE VERIFY LIST — populate from the rulebook before release."
+    "Full movement-rate table: see the verified Movement card below."
   ]
 };
-const TERRAIN_VERIFY = { "Movement key figures": true };
+const TERRAIN_VERIFY = {};   // all terrain content now verified (§10.1)
 
+/* ---------- §9A ADC taskings (VERIFIED against rulebook QRS — complete) ---------- */
 const TASKINGS = [
-  { n: "Forwards!", cost: 2, does: "+3D6\" to the brigade's move OR +1D6\" to its charge — ONE roll, all units use it.", limits: "Brigade cannot fire that turn (stationary deployed guns that didn't move may). Not usable by: Recruits in Line, Squares, Deployed Artillery, units with battalion guns. Current formation only — no formation change mid-move." },
-  { n: "Artillery Assault Fire", cost: 2, does: "+2 CD; ignores counter-battery priority.", limits: "An FC result then costs 2 casualties. Grand Battery caisson: BOTH batteries fire under the one tasking." },
-  { n: "Melee with Élan", cost: 2, does: "Élan bonus applies to the lead unit AND all supports in the melee.", limits: "Declare with the charge." },
-  { n: "Rally that Brigade!", cost: 2, does: "Removes Faltering; retreating/routing units rally (UNFORMED until a full Movement phase reforms).", limits: "If the order fails it may be re-issued next turn at the 2-ADC cost (FAQ)." },
-  { n: "Redeploy that Battery!", cost: 1, does: "Limber and redeploy a battery.", limits: "NOT available to French pure-artillery brigades, Prussian or Russian artillery." },
-  { n: "Commit Reserve (1813)", cost: 2, does: "Releases the off-table reserve brigade; enters within its rear zone.", limits: "All ADCs revert to 3+ availability from the following Command Phase." },
-  { n: "ADC Brigade Attachment", cost: 1, does: "Required for Austrian/Russian/Other brigadiers to attach to a unit.", limits: "Must be in place before the brigadier attaches." }
+  { n: "Divisional Morale", cost: "1 per Faltering brigade", does: "MANDATORY: each Faltering brigade requires 1 ADC posted at the start of the Command phase.", limits: "No ADC posted = that brigade takes Sauve qui Peut! (lowest-graded brigade first if short)." },
+  { n: "Scouts", cost: 1, does: "Reveal a Fog of War card.", limits: "Maximum 1 Scouts posting per turn." },
+  { n: "Brigade Attachment", cost: 1, does: "Re-roll a Brigade Command Roll. Austrian/Russian/Other: may redeploy foot artillery if the brigade Obeys Orders; optionally required for their brigadier to attach.", limits: "Maximum 1 per brigade." },
+  { n: "Glory!", cost: 1, does: "Attached brigadier leads the Charge: +1 CD in Melee; infantry recover 1 casualty on a 4–6.", limits: "Brigadier must be attached; Risk to General applies on retire/retreat results." },
+  { n: "Skirmishers!", cost: 1, does: "Skirmishers add +1 CD to fire; brigade units may Reinforce the Skirmish Line.", limits: "Russian non-light battalions LOSE a base when reinforcing the screen." },
+  { n: "Forwards!", cost: 2, does: "+3D6\" to the brigade's normal Movement OR +1D6\" to its Charge — ONE roll, all units use the same dice; cannot mix the two.", limits: "Brigade may not fire that turn (exception: deployed guns that did not move). Squares and Recruits in Line may not use Forwards rates; deployed artillery may not manhandle at Forwards rates; units with battalion guns (1813) may not use it." },
+  { n: "Infantry Assault!", cost: 2, does: "Infantry may declare multiple/supported charges; advance to volley range.", limits: "" },
+  { n: "Artillery Assault Fire!", cost: 2, does: "+2 CD to battery fire; ignores counter-battery priority; FC result then costs 2 casualties.", limits: "NOT available if the battery has 4+ casualties, is Low on Ammunition, Recruit, or Unformed. Grand Battery caisson (1813): BOTH batteries fire under the one tasking." },
+  { n: "Reserve", cost: "1 (2 if off-table)", does: "Commit the Reserve into the battle line if the brigade Obeys Orders; +1 ADC adds an Assault or Forwards order to it.", limits: "Off-table reserve (1813): its release is the 2-ADC version; one of the C-in-C's ADCs rolls on 5+ while it stays hidden." },
+  { n: "Ammunition!", cost: 2, does: "Replenish the brigade's artillery ammunition if the brigade Obeys Orders.", limits: "" },
+  { n: "Redeploy", cost: 2, does: "Order a brigade to take up a new position in the battle line or into Reserve.", limits: "If the order fails it may be re-issued in a following turn at the 2-ADC cost (FAQ). National artillery-redeployment limits apply (Prussian/Russian guns: no Redeploy that Battery; A/R/O foot guns redeploy via Brigade Attachment instead)." },
+  { n: "Command!", cost: 3, does: "Command re-roll; units recover 2 casualties; win Charge Initiative; Glory +1 CD in melee.", limits: "" }
+];
+const TASKING_NOTES = [
+  "Élan is NOT a tasking — it is a CHARGE RESULT (e.g. infantry winning by 3–5) granting +1 CD in the melee (+2 CD if infantry in Attack Column).",
+  "Rallying is NOT a tasking — Retreating/Routed units rally when their brigade Obeys Orders (Steady, 3–6 on the Command die), emerging UNFORMED until a full Movement phase reforms them. Faltering brigades rally via the Divisional Morale posting + Falter table.",
+  "ADC availability: 1D6 per ADC, available on 3–6. Off-table Reserve & Reinforcement brigade ADCs: available on 5–6.",
+  "Initiative: 2D6 minus the number of Hesitant + Faltering brigades; highest wins; draw = last turn's holder. Optional: French may spend ADCs for +1/+2."
 ];
 
 const DISPERSAL = [
-  "Standard battalion/regiment: disperses per its size's dispersal point (populate exact size table per VERIFY list).",
+  "Standard battalion/regiment: see the verified casualty-levels table below (§10.5).",
   "Standard battery: −2 fire at 6+ casualties, disperses at 8+.",
   "Large (12-gun) battery: −2 fire at 8+, disperses at 10+ (and ignores its first FC).",
   "Battery that Retreats, Routs or Disperses COUNTS toward brigade Falter triggers like any other unit (FAQ).",
@@ -156,9 +271,9 @@ const CHARGE_WALKER = [
 ];
 
 const FALTER_WALKER = [
-  { t: "Check the trigger", r: "Artillery counts toward falter triggers (a battery that Retreats, Routs or Disperses counts like any other unit).", err: "Ignoring batteries when counting the brigade's losses." },
+  { t: "Check the trigger", r: FALTER_TRIGGER + " Artillery counts toward falter triggers (a battery that Retreats, Routs or Disperses counts like any other unit).", err: "Ignoring batteries when counting the brigade's losses." },
   { t: "Roll ONCE on the Faltering Brigade table", r: "There is NO separate command roll — one D6, read the row for the brigade's grade.", err: "Rolling a command test first — that's not in the procedure." },
-  { t: "Apply the result by grade", r: "See the table below. Obey: retreating/routing units rally immediately but are UNFORMED until a full Movement phase reforms them.", err: "Auto-dispersing a brigade that became Demoralised and faltered simultaneously — it must have been ALREADY Demoralised when the dispersals happened." }
+  { t: "Apply the result by grade", r: "See the table and result definitions below. Obey: retreating/routing units rally immediately but are UNFORMED until a full Movement phase reforms them.", err: "Auto-dispersing a brigade that became Demoralised and faltered simultaneously — it must have been ALREADY Demoralised when the dispersals happened." }
 ];
 
 const TACTICS_ATTACK = [
@@ -191,13 +306,8 @@ const TACTICS_DEFEND = [
   ["Shoot the infantry, not the guns.", "Counter-battery duels rarely decide anything. Your batteries' best work is putting charge-casualty modifiers (−1/−2/−3) on the assault brigades before contact — break the charge in the approach, not the gun line behind it."]
 ];
 
-/* §10 — unverified items list (drives ⚠ badges) */
+/* §10.7 — the only items still open with the umpire */
 const VERIFY_LIST = [
-  "Full movement-rate table (line/column/square/cavalry/artillery limbered, road bonus) — rulebook pp.59ff.",
-  "Artillery range bands & base CD by range for the Fire tab.",
-  "Faltering table exact cells — confirm Retire vs Retreat wording, rulebook p.88ff.",
-  "Musketry base CD by unit size and range.",
-  "Full ADC tasking list and costs — confirm none missing; check Élan/Forwards costs.",
-  "Unit-size dispersal points table (Large/Standard/Small battalions & cavalry).",
-  "Melee CD values and melee modifiers table — rulebook pp.88ff."
+  "Charge Results table & charge modifiers (§3.2–3.3) were transcribed from the umpire's verified cheat sheet — embedded as given; any internal inconsistency found during play should be flagged to the umpire, not 'fixed' in the app.",
+  "Per-nation command tables (C-in-C grade ranges) — only needed if a future feature uses them; not required for v1."
 ];

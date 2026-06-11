@@ -9,7 +9,7 @@ const GRADE_UP = { Recruit: "Line", Line: "Veteran", Veteran: "Elite", Elite: "E
 function blankSide(role) {
   return {
     role, type: "inf", grade: "Line", formation: "line", unformed: false,
-    garrison: false, supports: [], general: false,
+    garrison: false, mob: false, supports: [], general: false,
     brigade: null, unitCas: null, chargeCas: null,
     chargingOn: false, heavyCav: false, lancers: false, campaignCav: false,
     narrowFront: false, flanked: false, flankRear: false,
@@ -38,8 +38,19 @@ function computeChargeMods(side, opp) {
   // formation
   if (side.unformed) mods.push({ label: "Unformed", val: CHARGE_MODS.formation.unformed });
   if (side.type === "inf" && opp.type === "cav") {
-    if (side.formation === "column" || side.formation === "square")
-      mods.push({ label: "Infantry column/square vs cavalry", val: CHARGE_MODS.formation.infColumnOrSquareVsCav });
+    if (side.formation === "column" || side.formation === "square") {
+      // §3.2b interaction logic — enforced, with the reason shown:
+      // flank/rear charge kills the column/square bonus; a 'column of
+      // mob' never gets the column bonus. Unformed square keeps its +2
+      // (both lines show, netting 0) — only these two suppress it.
+      if (side.flankRear) {
+        mods.push({ label: "Column/square +2 SUPPRESSED — charged in flank/rear gets no column bonus", val: 0, suppressed: true });
+      } else if (side.mob && side.formation === "column") {
+        mods.push({ label: "Column +2 SUPPRESSED — column of mob (retiring/routing mass) gets no column bonus", val: 0, suppressed: true });
+      } else {
+        mods.push({ label: "Infantry column/square vs cavalry", val: CHARGE_MODS.formation.infColumnOrSquareVsCav });
+      }
+    }
     if (side.formation === "line")
       mods.push({ label: "Infantry line vs cavalry", val: CHARGE_MODS.formation.infLineVsCav });
   }
@@ -105,6 +116,9 @@ function buildCharge() {
       h("details", {},
         h("summary", {}, "Common mistakes (FAQ)"),
         ...CHARGE_RESULT_NOTES.map(n => h("p", { class: "note" }, n))),
+      h("details", {},
+        h("summary", {}, "Interaction logic the calculator enforces"),
+        ...CHARGE_LOGIC.map(n => h("p", { class: "note" }, n))),
       h("details", {},
         h("summary", {}, "Supports & re-rolls — the rules"),
         h("p", { class: "note" }, CHARGE_MODS.supports))));
@@ -192,9 +206,11 @@ function chargeSideCard(side, opp) {
   } else {
     tog("Flanked", "−2", "flanked", true);
     tog("Charged in flank/rear", "−4", "flankRear", true);
+    tog("Column of mob", "no col bonus", "mob", true);
     tog("Narrower frontage", "−1 cav", "narrowFront", true);
   }
   card.append(sit);
+  card.append(h("div", { class: "sub", id: "suppress-" + side.role, style: "color:var(--warn);" }));
 
   card.append(h("div", { class: "grouplabel" }, "Brigade state"));
   card.append(singleSelect(
@@ -244,9 +260,18 @@ function refreshCharge() {
     el.textContent = fmtMod(net);
     const ul = $("#whylist-" + role);
     ul.innerHTML = "";
-    for (const m of mods) ul.append(h("li", {}, m.label, h("b", {}, fmtMod(m.val))));
+    for (const m of mods) {
+      const li = h("li", {}, m.label, h("b", {}, fmtMod(m.val)));
+      if (m.suppressed) li.style.opacity = ".55";
+      ul.append(li);
+    }
     if (!mods.length) ul.append(h("li", {}, "no modifiers", h("b", {}, "0")));
     $("#rr-" + role).textContent = "Supports: " + rerollSummary(role === "charger" ? CH.charger : CH.defender);
+    const supNote = $("#suppress-" + role);
+    if (supNote) {
+      const sup = mods.filter(m => m.suppressed);
+      supNote.textContent = sup.length ? "⚠ " + sup.map(m => m.label).join(" · ") : "";
+    }
   }
 
   // result

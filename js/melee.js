@@ -1,32 +1,72 @@
-/* Melee round resolver (§9A) — opens from a Melee/Élan charge result.
-   Round-1 participation, Élan scope, winner-by-casualties, the Pyrrhic
-   Victory flip and round-2 reinforcement are VERIFIED rules. Melee CD
-   values themselves are §10-unverified → CD tally is a helper only;
-   the casualties each side actually causes are entered from the table. */
+/* Melee round resolver — §10.6 VERIFIED.
+   CD per unit computed from base type (Inf/Cav 5, Cossack 4, Arty 3,
+   hits on 4–6, min 1 after mods) + MELEE_MODS chips. Élan applies to
+   lead AND all supports (one toggle). 'Attacked in flank/rear'
+   auto-enforces ONLY-NEGATIVES. Winner = most casualties caused (one
+   combined comparison) → MELEE_RESULTS band for the matchup. Pyrrhic
+   Victory flip applied automatically. */
 "use strict";
 
 let MEL = null;
 
+const MEL_TYPES = [["infantry", "Inf"], ["cavalry", "Cav"], ["cossacks", "Cossack"], ["artillery", "Arty"]];
+const MEL_UNIT_CHIPS = [
+  { id: "elite",   label: "Elite",                       cd: +1 },
+  { id: "heavy",   label: "Heavy cavalry",               cd: +2 },
+  { id: "lancerC", label: "Formed lancers vs cav",       cd: +1, note: "n/a vs Cuirassiers" },
+  { id: "lancerF", label: "Formed lancers vs foot",      cd: +2 },
+  { id: "large",   label: "Large unit",                  cd: +1, note: "n/a col-of-coys/square/battery" },
+  { id: "small",   label: "Small unit",                  cd: -1 },
+  { id: "glory",   label: "General + Glory!",            cd: +1 },
+  { id: "unf",     label: "Unformed",                    cd: -1 },
+  { id: "bua1",    label: "Attacking BUA (1st round)",   cd: -1 },
+  { id: "strong",  label: "Attacking strongpoint",       cd: -1 },
+  { id: "redoubt", label: "Redoubt / up steep slope",    cd: -1 },
+  { id: "cas4",    label: "4+ casualties",               cd: -1 },
+  { id: "cas8",    label: "8+ casualties (10+ El/Lg)",   cd: -2 }
+];
+
+function meleeUnitInit(label, lead) {
+  return { label, lead, inFight: !!lead, type: "infantry", chips: [], gradeAbove: 0, flankRear: false };
+}
 function meleeSideInit(name, supports) {
   return {
-    name,
-    units: [{ label: name + " lead", cd: 0, lead: true, inFight: true, unformed: false, garrison: false }]
-      .concat((supports || []).map((s, i) => ({
-        label: "Support " + (i + 1) + (s.degraded ? " (degraded)" : ""),
-        cd: 0, lead: false, inFight: false, unformed: false, garrison: false
-      }))),
-    elan: false, cas: 0, curCas: 0, dispPt: 8
+    name, elan: false, elanAttackCol: false, cas: 0, curCas: 0, dispPt: 12,
+    units: [meleeUnitInit(name + " lead", true)]
+      .concat((supports || []).map((s, i) => meleeUnitInit("Support " + (i + 1) + (s.degraded ? " (degraded)" : ""), false)))
   };
+}
+
+function unitCD(u, side) {
+  if (!u.inFight) return 0;
+  let pos = 0, neg = 0;
+  const add = v => { if (v > 0) pos += v; else neg += v; };
+  for (const id of u.chips) {
+    const c = MEL_UNIT_CHIPS.find(x => x.id === id);
+    if (c) add(c.cd);
+  }
+  add(u.gradeAbove);                       // +1 per grade above opponent
+  if (side.elan) add(side.elanAttackCol && u.type === "infantry" ? 2 : 1);
+  if (u.flankRear) { neg += -1; pos = 0; } // −1 AND only negatives apply
+  const base = MELEE_CD[u.type] || 5;
+  return Math.max(1, base + pos + neg);    // min 1 CD after modifiers
 }
 
 function openMelee(chargeState, fromOutcome) {
   MEL = {
-    round: 1, fromOutcome: fromOutcome || null,
+    round: 1, fromOutcome: fromOutcome || null, matchup: "cavCavInfInf",
     sides: [
       meleeSideInit("Charger", chargeState ? chargeState.charger.supports : []),
       meleeSideInit("Defender", chargeState ? chargeState.defender.supports : [])
     ]
   };
+  if (chargeState) {
+    if (chargeState.charger.type === "cav" && chargeState.defender.type !== "cav") MEL.matchup = "cavVsInf";
+    if (chargeState.defender.formation === "garrison") MEL.matchup = "infVsBUA";
+    MEL.sides[0].units[0].type = chargeState.charger.type === "cav" ? "cavalry" : "infantry";
+    MEL.sides[1].units[0].type = chargeState.defender.type === "cav" ? "cavalry"
+      : chargeState.defender.type === "arty" ? "artillery" : "infantry";
+  }
   renderMelee();
 }
 
@@ -34,10 +74,7 @@ function meleePanel() {
   let p = $("#meleepanel");
   if (!p) {
     p = h("div", { id: "meleepanel" });
-    Object.assign(p.style, {
-      position: "fixed", inset: "0", zIndex: "55", background: "var(--bg)",
-      overflowY: "auto", padding: "12px", display: "none"
-    });
+    Object.assign(p.style, { position: "fixed", inset: "0", zIndex: "55", background: "var(--bg)", overflowY: "auto", padding: "12px", display: "none" });
     document.body.append(p);
   }
   return p;
@@ -50,20 +87,26 @@ function renderMelee() {
   const wrap = h("div", { style: "max-width:760px;margin:0 auto;" });
   p.append(wrap);
 
-  wrap.append(h("div", { class: "card" },
+  const head = h("div", { class: "card" },
     h("div", { class: "flagrow", style: "justify-content:space-between;" },
       h("h2", { style: "margin:0;" }, "Melee — round " + MEL.round),
       h("button", { class: "iconbtn", onclick: () => { p.style.display = "none"; } }, "✕")),
     MEL.fromOutcome ? h("p", { class: "sub" }, "From charge result: " + MEL.fromOutcome) : null,
-    h("p", { class: "note" },
-      MEL.round === 1
-        ? "Round 1: lead unit + flank supports that PHYSICALLY reached base-to-base. Rear supports never fight round 1."
-        : "Round 2+: any FORMED, IN-COMMAND unit within support distance (cavalry 10\") may reinforce — even if it moved a full move this turn."),
-    h("p", { class: "sub" }, "Melee CD values per unit", h("span", { class: "badge-verify" }, "⚠ unverified"),
-      " — tally is a helper; the casualties entered below decide the melee.")));
+    h("p", { class: "note" }, MEL.round === 1
+      ? "Round 1: lead unit + flank supports that PHYSICALLY reached base-to-base. Rear supports never fight round 1."
+      : "Round 2+: any FORMED, IN-COMMAND unit within support distance (cavalry 10\") may reinforce — even if it moved a full move this turn."));
+
+  // matchup pick (drives the results bands)
+  const seg = h("div", { class: "seg" });
+  for (const [k, l] of Object.entries(MELEE_MATCHUPS)) {
+    const b = h("button", { class: MEL.matchup === k ? "on" : "" }, l);
+    b.addEventListener("click", () => { MEL.matchup = k; renderMelee(); });
+    seg.append(b);
+  }
+  head.append(h("div", { class: "grouplabel" }, "Matchup (results column)"), seg);
+  wrap.append(head);
 
   for (const side of MEL.sides) wrap.append(meleeSideCard(side));
-
   wrap.append(h("div", { class: "card resultpanel", id: "melee-result" }));
   meleeResult();
 }
@@ -73,41 +116,85 @@ function meleeSideCard(side) {
   card.append(h("h2", {}, side.name));
 
   for (const u of side.units) {
-    const row = h("div", { class: "flagrow", style: "flex-wrap:wrap;border-bottom:1px dashed var(--line);padding:6px 0;" });
+    const box = h("div", { style: "border-bottom:1px dashed var(--line);padding:8px 0;" });
     const fight = h("button", {
       class: "chip" + (u.inFight ? " on" : ""),
       onclick: ev => {
         if (u.lead) return;
-        u.inFight = !u.inFight; ev.target.closest(".chip").classList.toggle("on");
+        u.inFight = !u.inFight; ev.currentTarget.classList.toggle("on");
         meleeResult(); buzz(12);
       }
     }, u.lead ? "Lead (always fights)" : u.label,
       !u.lead ? h("small", {}, MEL.round === 1 ? "reached contact?" : "joins?") : null);
-    const cdStep = makeStepper(0, 10, u.cd, v => { u.cd = v; meleeResult(); });
-    const unf = makeChip("Unformed", null, on => { u.unformed = on; meleeResult(); }, { neg: true });
-    if (u.unformed) unf.classList.add("on");
-    const gar = makeChip("Garrison", null, on => { u.garrison = on; meleeResult(); });
-    if (u.garrison) gar.classList.add("on");
-    row.append(fight, h("span", { class: "sub" }, "CD"), cdStep.el, unf, gar);
-    card.append(row);
+    const cdBadge = h("b", { style: "margin-left:auto;font-size:18px;", "data-cd": "1" }, "");
+    box.append(h("div", { class: "flagrow" }, fight, cdBadge));
+
+    // type
+    const tseg = h("div", { class: "seg" });
+    for (const [tk, tl] of MEL_TYPES) {
+      const b = h("button", { class: u.type === tk ? "on" : "", style: "min-height:40px;" }, tl + " " + MELEE_CD[tk]);
+      b.addEventListener("click", () => { u.type = tk; renderMelee(); });
+      tseg.append(b);
+    }
+    box.append(tseg);
+
+    // chips
+    const cw = h("div", { class: "chips" });
+    for (const c of MEL_UNIT_CHIPS) {
+      const on = u.chips.includes(c.id);
+      const chip = h("button", { class: "chip" + (on ? " on" : "") + (c.cd < 0 ? " neg" : "") },
+        c.label, h("small", {}, (c.cd > 0 ? "+" : "") + c.cd + (c.note ? " · " + c.note : "")));
+      chip.addEventListener("click", () => {
+        const i = u.chips.indexOf(c.id);
+        if (i >= 0) { u.chips.splice(i, 1); chip.classList.remove("on"); }
+        else { u.chips.push(c.id); chip.classList.add("on"); }
+        meleeResult(); buzz(10);
+      });
+      cw.append(chip);
+    }
+    // flank/rear (only-negatives) + grade-above stepper
+    const fr = makeChip("Attacked in flank/rear", "−1, ONLY negatives count", on => { u.flankRear = on; meleeResult(); }, { neg: true });
+    if (u.flankRear) fr.classList.add("on");
+    cw.append(fr);
+    box.append(cw);
+    box.append(h("div", { class: "flagrow" },
+      h("span", { class: "sub" }, "grades above opponent"),
+      makeStepper(0, 3, u.gradeAbove, v => { u.gradeAbove = v; meleeResult(); }).el));
+    u._cdBadge = cdBadge;
+    card.append(box);
   }
 
-  const elan = makeChip("Melee with Élan", "lead + ALL supports", on => { side.elan = on; meleeResult(); });
+  const elan = makeChip("Élan", "+1 lead + ALL supports", on => { side.elan = on; meleeResult(); });
   if (side.elan) elan.classList.add("on");
-  card.append(h("div", { class: "chips" }, elan));
+  const eac = makeChip("…infantry in Attack Column", "+2 instead", on => { side.elanAttackCol = on; meleeResult(); });
+  if (side.elanAttackCol) eac.classList.add("on");
+  card.append(h("div", { class: "chips" }, elan, eac));
 
-  card.append(h("div", { class: "grouplabel" }, "Casualties CAUSED by this side (round " + MEL.round + ")"));
+  card.append(h("div", { class: "grouplabel" }, "Casualties CAUSED by this side (round " + MEL.round + ") — hits on 4–6"));
   card.append(makeStepper(0, 20, side.cas, v => { side.cas = v; meleeResult(); }).el);
 
   card.append(h("div", { class: "grouplabel" }, "Pyrrhic check — this side's force"));
-  const r1 = h("div", { class: "flagrow" },
+  card.append(h("div", { class: "flagrow" },
     h("span", { class: "sub", style: "width:130px;" }, "casualties NOW"),
-    makeStepper(0, 30, side.curCas, v => { side.curCas = v; meleeResult(); }).el);
-  const r2 = h("div", { class: "flagrow" },
+    makeStepper(0, 30, side.curCas, v => { side.curCas = v; meleeResult(); }).el));
+  card.append(h("div", { class: "flagrow" },
     h("span", { class: "sub", style: "width:130px;" }, "dispersal point"),
-    makeStepper(1, 30, side.dispPt, v => { side.dispPt = v; meleeResult(); }).el);
-  card.append(r1, r2);
+    makeStepper(1, 30, side.dispPt, v => { side.dispPt = v; meleeResult(); }).el));
+  const dpw = h("div", { class: "chips" });
+  for (const d of DISPERSE_POINTS) {
+    const b = h("button", { class: "chip" }, d.label, h("small", {}, String(d.pt)));
+    b.addEventListener("click", () => { side.dispPt = d.pt; renderMelee(); });
+    dpw.append(b);
+  }
+  card.append(h("details", {}, h("summary", {}, "set dispersal point from the verified table"), dpw));
   return card;
+}
+
+function meleeBand(diff) {
+  if (diff >= 3) return "3+";
+  if (diff === 2) return "2";
+  if (diff === 1) return "1";
+  return "DRAW";
 }
 
 function meleeResult() {
@@ -118,26 +205,28 @@ function meleeResult() {
 
   const [a, b] = MEL.sides;
   for (const s of MEL.sides) {
-    const inFight = s.units.filter(u => u.inFight);
-    const cd = inFight.reduce((t, u) => t + u.cd, 0);
+    let cd = 0;
+    for (const u of s.units) {
+      const c = unitCD(u, s);
+      if (u._cdBadge) u._cdBadge.textContent = u.inFight ? c + " CD" : "—";
+      cd += c;
+    }
     res.append(h("p", { class: "sub" },
-      s.name + ": " + inFight.length + " unit(s) fighting · CD tally " + cd +
-      (s.elan ? " · Élan (lead + all supports)" : "")));
+      s.name + ": " + s.units.filter(u => u.inFight).length + " unit(s) · " + cd + " CD total (hits on 4–6, min 1/unit)" +
+      (s.elan ? " · Élan" : "")));
+    s._cd = cd;
   }
 
   if (a.cas === 0 && b.cas === 0) {
-    res.append(h("p", { class: "sub" }, "Enter casualties caused by each side — winner = most total casualties (ONE combined comparison, not per-pair duels)."));
+    res.append(h("p", { class: "sub" }, "Roll each side's CD (hits on 4–6), enter casualties caused — winner = most total casualties, ONE combined comparison."));
     return;
   }
 
   let winner = a.cas > b.cas ? a : b.cas > a.cas ? b : null;
-  if (!winner) {
-    res.append(h("div", { class: "outcome" }, "DRAWN ROUND — fight on"));
-  } else {
+  let flipped = false;
+  const diff = winner ? Math.abs(a.cas - b.cas) : 0;
+  if (winner) {
     let loser = winner === a ? b : a;
-    const diff = winner.cas - loser.cas;
-    let flipped = false;
-    // Pyrrhic Victory: winner reaching its OWN dispersal point flips the result
     if (winner.curCas >= winner.dispPt) {
       flipped = true;
       const t = winner; winner = loser; loser = t;
@@ -145,9 +234,21 @@ function meleeResult() {
     res.append(h("div", { class: "bigdiff " + (flipped ? "bad" : "good") }, winner.name.toUpperCase() + " WINS"),
       h("div", { class: "sub" }, "by " + diff + " casualt" + (diff === 1 ? "y" : "ies")));
     if (flipped) res.append(h("p", { class: "note" },
-      "PYRRHIC VICTORY: " + loser.name + " caused more casualties but reached its own dispersal point — the result FLIPS. " +
+      "PYRRHIC VICTORY: " + (winner === a ? b.name : a.name) + " caused more casualties but reached its own dispersal point — the result FLIPS. " +
       winner.name + " wins, ignores retreat/rout results, and takes the ground UNFORMED."));
+  } else {
+    res.append(h("div", { class: "outcome" }, "DRAWN ROUND"));
   }
+
+  // verified results band for the matchup
+  const band = meleeBand(diff && !flipped ? diff : (winner ? diff : 0));
+  const bandRow = MELEE_RESULTS[winner ? meleeBand(diff) : "DRAW"];
+  res.append(h("div", { class: "outcome good" }, bandRow[MEL.matchup]));
+  if (!winner || meleeBand(diff) === "1" || MEL.matchup === "infVsBUA")
+    res.append(h("p", { class: "note" }, MELEE_NOTES[0]));
+  if (!winner && MEL.matchup === "cavCavInfInf")
+    res.append(h("p", { class: "note" }, MELEE_NOTES[1]));
+  res.append(h("p", { class: "sub" }, MELEE_NOTES[2]));
 
   res.append(
     h("button", {
@@ -156,32 +257,32 @@ function meleeResult() {
         for (const s of MEL.sides) {
           s.cas = 0;
           for (const u of s.units) if (!u.lead) u.inFight = false;
-          s.units.push({ label: "Reinforcement R" + MEL.round, cd: 0, lead: false, inFight: false, unformed: false, garrison: false });
+          s.units.push(meleeUnitInit("Reinforcement R" + MEL.round, false));
         }
         renderMelee();
       }
     }, "Fight on → round " + (MEL.round + 1) + " (add reinforcements)"),
     h("p", { class: "note" },
-      "Round-2 reinforcements must be FORMED and IN COMMAND within support distance (cavalry from up to 10\"). An Unformed unit may NOT join — if it's marked Unformed here, untick it from the fight."),
+      "Maximum 2 melee rounds per phase; a 2nd draw = Attacker Retires. Reinforcements must be FORMED and IN COMMAND within support distance (cavalry 10\"). An Unformed unit may NOT join."),
     h("button", {
       class: "bigbtn", onclick: () => {
-        const w = a.cas === b.cas ? null : (a.cas > b.cas ? a : b);
         SessionLog.add({
           kind: "melee", round: MEL.round,
           detail: MEL.sides.map(s => s.name + " " + s.cas + " cas").join(" vs "),
-          winner: w ? w.name : "drawn"
+          winner: winner ? winner.name + (flipped ? " (Pyrrhic flip)" : "") : "drawn"
         });
         $("#meleepanel").style.display = "none";
         buzz(30);
       }
     }, "Lock melee & log it"));
 
-  // enforcement of test-case 9: an unformed reinforcement cannot fight
+  // round-2+ rule: an Unformed reinforcement cannot join the fight
   for (const s of MEL.sides) {
     for (const u of s.units) {
-      if (u.inFight && !u.lead && u.unformed && MEL.round >= 2) {
+      if (u.inFight && !u.lead && MEL.round >= 2 && u.chips.includes("unf")) {
         u.inFight = false;
-        res.prepend(h("p", { class: "walkerr" }, h("b", {}, "Blocked: "), u.label + " is Unformed — Unformed units cannot reinforce a melee. It has been removed from the fight."));
+        res.prepend(h("p", { class: "walkerr" }, h("b", {}, "Blocked: "),
+          u.label + " is Unformed — Unformed units cannot reinforce a melee. Removed from the fight."));
       }
     }
   }

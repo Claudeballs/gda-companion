@@ -35,7 +35,7 @@ function falterTableEl() {
   const rows = [["Elite", FALTER_TABLE.Elite], ["Veteran / Line", FALTER_TABLE.VeteranLine], ["Recruit", FALTER_TABLE.Recruit]];
   for (const [label, cells] of rows) {
     tbl.append(h("tr", {}, h("td", {}, h("b", {}, label)),
-      ...cells.map(c => h("td", { class: "r-" + c.replace("!", "") }, c))));
+      ...cells.map(c => h("td", { class: "r-" + c.split(" ")[0].replace("!", "") }, c))));
   }
   return tbl;
 }
@@ -49,39 +49,70 @@ function buildProcedures() {
 
   const falterWrap = makeWalker("falter", "Faltering brigade", FALTER_WALKER, () => {
     const d = h("div", {});
-    d.append(h("h3", {}, "Faltering Brigade table",
-      h("span", { class: "badge-verify" }, "⚠ verify wording")), falterTableEl());
+    d.append(h("h3", {}, "Faltering Brigade table (verified)"), falterTableEl());
+    d.append(h("p", { class: "note" }, FALTER_TRIGGER));
+    for (const [k, v] of Object.entries(FALTER_RESULTS))
+      d.append(h("p", { class: "note" }, h("b", {}, k + ": "), v));
     for (const n of FALTER_NOTES) d.append(h("p", { class: "note" }, n));
     return d;
   });
   root.append(falterWrap);
-  indexCard("procedures", "walk-falter", "Faltering Brigade table", FALTER_NOTES.join(" ") + " obey rally retire sauve");
+  indexCard("procedures", "walk-falter", "Faltering Brigade table",
+    FALTER_TRIGGER + " " + Object.values(FALTER_RESULTS).join(" ") + " " + FALTER_NOTES.join(" ") + " obey rally retire sauve qui peut");
 
-  /* ADC taskings */
-  const adc = h("div", { class: "card", id: "adc-card" },
-    h("h2", {}, "ADC taskings", h("span", { class: "badge-verify" }, "⚠ confirm full list vs rulebook")));
+  /* ADC taskings — complete, VERIFIED against the rulebook QRS */
+  const adc = h("div", { class: "card", id: "adc-card" }, h("h2", {}, "ADC taskings (verified, complete)"));
   for (const t of TASKINGS) {
+    const costLabel = typeof t.cost === "number" ? t.cost + " ADC" : t.cost;
     adc.append(h("details", {},
-      h("summary", {}, t.n + " — " + t.cost + " ADC"),
+      h("summary", {}, t.n + " — " + costLabel),
       h("p", { class: "sub" }, h("b", {}, "Does: "), t.does),
-      h("p", { class: "note" }, h("b", {}, "Limits: "), t.limits)));
+      t.limits ? h("p", { class: "note" }, h("b", {}, "Limits: "), t.limits) : null));
   }
+  for (const n of TASKING_NOTES) adc.append(h("p", { class: "note" }, n));
   root.append(adc);
-  indexCard("procedures", "adc-card", "ADC taskings", TASKINGS.map(t => t.n + " " + t.does + " " + t.limits).join(" "));
+  indexCard("procedures", "adc-card", "ADC taskings",
+    TASKINGS.map(t => t.n + " " + t.does + " " + t.limits).join(" ") + " " + TASKING_NOTES.join(" "));
 
-  /* dispersal thresholds */
-  const disp = h("div", { class: "card", id: "dispersal-card" }, h("h2", {}, "Dispersal thresholds"));
+  /* dispersal thresholds + verified casualty-levels table (§10.5) */
+  const disp = h("div", { class: "card", id: "dispersal-card" }, h("h2", {}, "Casualty levels & dispersal (verified)"));
+  const ct = h("table", { class: "ft" });
+  ct.append(h("tr", {}, h("th", {}, "Unit"), h("th", {}, "Fresh"), h("th", {}, "−1 at"), h("th", {}, "−2 at"), h("th", {}, "Disperse")));
+  for (const r of CASUALTY_LEVELS)
+    ct.append(h("tr", {}, h("td", { style: "text-align:left;" }, r.unit), h("td", {}, r.fresh), h("td", {}, r.l1), h("td", {}, r.l2), h("td", { class: "r-Sauve" }, r.disperse)));
+  disp.append(ct);
   for (const d of DISPERSAL) disp.append(h("p", { class: "note" }, d));
   root.append(disp);
-  indexCard("procedures", "dispersal-card", "Dispersal thresholds", DISPERSAL.join(" "));
+  indexCard("procedures", "dispersal-card", "Casualty levels dispersal thresholds",
+    DISPERSAL.join(" ") + " " + CASUALTY_LEVELS.map(r => r.unit + " " + r.disperse).join(" "));
 
-  /* verify list */
+  /* melee quick-reference (verified §10.6) */
+  const ml = h("div", { class: "card", id: "melee-ref-card" }, h("h2", {}, "Melee tables (verified)"));
+  ml.append(h("p", { class: "note" },
+    "Base CD: Infantry " + MELEE_CD.infantry + " · Cavalry " + MELEE_CD.cavalry + " · Cossacks " + MELEE_CD.cossacks +
+    " · Artillery " + MELEE_CD.artillery + ". Hits on " + MELEE_CD.hitOn + ". Minimum " + MELEE_CD.minimum + "."));
+  const mlt = h("table", { class: "ft" });
+  mlt.append(h("tr", {}, h("th", {}, "Diff"), h("th", {}, "Cav v Cav · Inf v Inf"), h("th", {}, "Cav vs Inf"), h("th", {}, "Inf vs BUA")));
+  for (const [band, r] of Object.entries(MELEE_RESULTS))
+    mlt.append(h("tr", {}, h("td", {}, band), h("td", {}, r.cavCavInfInf), h("td", {}, r.cavVsInf), h("td", {}, r.infVsBUA)));
+  ml.append(mlt);
+  const modsList = h("details", {}, h("summary", {}, "all melee CD modifiers"));
+  for (const grp of [MELEE_MODS.unit, MELEE_MODS.situation, MELEE_MODS.position])
+    for (const [k, v] of Object.entries(grp))
+      modsList.append(h("p", { class: "note" }, h("b", {}, k.replace(/([A-Z])/g, " $1").toLowerCase() + ": "), v));
+  ml.append(modsList);
+  for (const n of MELEE_NOTES) ml.append(h("p", { class: "note" }, n));
+  root.append(ml);
+  indexCard("procedures", "melee-ref-card", "Melee tables CD modifiers results firefight fight on",
+    JSON.stringify(MELEE_MODS).replace(/[{}"\[\]]/g, " ") + " " + MELEE_NOTES.join(" "));
+
+  /* the only items still open with the umpire (§10.7) */
   const vf = h("div", { class: "card", id: "verify-card" },
-    h("h2", {}, "⚠ Data awaiting umpire sign-off"),
-    h("p", { class: "sub" }, "Cards carrying the ⚠ badge use data not yet confirmed against the rulebook. Confirm each, then the badge comes off in data.js:"));
+    h("h2", {}, "Open items with the umpire"),
+    h("p", { class: "sub" }, "Everything else in the app is verified against the rulebook + official FAQ."));
   for (const v of VERIFY_LIST) vf.append(h("p", { class: "note" }, v));
   root.append(vf);
-  indexCard("procedures", "verify-card", "Unverified data list", VERIFY_LIST.join(" "));
+  indexCard("procedures", "verify-card", "Open items umpire", VERIFY_LIST.join(" "));
 }
 
 /* ---------- nations ---------- */
@@ -136,7 +167,7 @@ function buildTactics() {
   block("Defending", TACTICS_DEFEND, "def");
 }
 
-/* ---------- terrain ---------- */
+/* ---------- terrain + verified movement & ranges (§10.1–10.2) ---------- */
 function buildTerrain() {
   const root = $("#tab-terrain");
   root.innerHTML = "";
@@ -148,6 +179,41 @@ function buildTerrain() {
     root.append(card);
     indexCard("terrain", id, name, lines.join(" "));
   }
+
+  // movement rates (verified, rulebook p56)
+  const mv = h("div", { class: "card", id: "terrain-movement" }, h("h2", {}, "Movement rates (verified)"));
+  const mt = h("table", { class: "ft" });
+  mt.append(h("tr", {}, h("th", {}, ""), h("th", {}, "Rate")));
+  const mrow = (l, v) => mt.append(h("tr", {}, h("td", { style: "text-align:left;" }, l), h("td", {}, v)));
+  mrow("Infantry line", MOVEMENT.infantry.line); mrow("Infantry column", MOVEMENT.infantry.column);
+  mrow("Infantry square", MOVEMENT.infantry.square); mrow("Skirmishers", MOVEMENT.infantry.skirmish);
+  mrow("Inf evade/retire", MOVEMENT.infantry.evadeRetire); mrow("Inf retreat/rout", MOVEMENT.infantry.retreatRout);
+  mrow("Cavalry line", MOVEMENT.cavalry.line); mrow("Cav skirmish/evade/retire", MOVEMENT.cavalry.skirmishEvadeRetire);
+  mrow("Cav retreat/rout", MOVEMENT.cavalry.retreatRout);
+  mrow("Horse artillery", MOVEMENT.horseArtillery); mrow("Foot artillery", MOVEMENT.footArtillery);
+  mrow("Generals", MOVEMENT.generals);
+  mrow("Charge bonus inf / cav", MOVEMENT.chargeBonus.infantry + " / " + MOVEMENT.chargeBonus.cavalry);
+  mrow("Step back inf / cav", MOVEMENT.stepBack.infantry + " / " + MOVEMENT.stepBack.cavalry);
+  mrow("Manhandle/wheel battery", MOVEMENT.stepBack.manhandleOrWheelBattery);
+  mv.append(mt);
+  for (const k of ["moveToFlank", "oblique", "aboutFace", "minimumCloseDistance", "unformed", "roughTerrain", "severeTerrain", "fallingBackThroughGaps"])
+    mv.append(h("p", { class: "note" }, h("b", {}, k.replace(/([A-Z])/g, " $1").toLowerCase() + ": "), MOVEMENT[k]));
+  root.append(mv);
+  indexCard("terrain", "terrain-movement", "Movement rates",
+    JSON.stringify(MOVEMENT).replace(/[{}"\[\]]/g, " "));
+
+  // weapon ranges (verified, rulebook p76)
+  const rg = h("div", { class: "card", id: "terrain-ranges" }, h("h2", {}, "Weapon ranges (verified)"));
+  rg.append(h("p", { class: "note" }, h("b", {}, "Musketry: "),
+    "square " + RANGES.musketry.square + " · volley " + RANGES.musketry.volley + " · skirmish " + RANGES.musketry.skirmish));
+  const rt = h("table", { class: "ft" });
+  rt.append(h("tr", {}, h("th", {}, "Guns"), h("th", {}, "Canister"), h("th", {}, "Effective"), h("th", {}, "Long")));
+  for (const [g, r] of Object.entries(RANGES.artillery))
+    rt.append(h("tr", {}, h("td", {}, g), h("td", {}, r.canister), h("td", {}, r.effective), h("td", {}, r.long)));
+  rg.append(rt);
+  root.append(rg);
+  indexCard("terrain", "terrain-ranges", "Weapon ranges musketry artillery canister effective long",
+    JSON.stringify(RANGES).replace(/[{}"\[\]]/g, " "));
 }
 
 function buildReference() {
