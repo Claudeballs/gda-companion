@@ -1,14 +1,19 @@
-/* Charge calculator — the killer feature.
-   Models the 2D6 charge test each side rolls: shows each side's net
-   modifier live, takes the table-rolled dice, resolves band + column. */
+/* Charge tab — the full charge in ONE flow (rebuilt per Andy's table
+   feedback, 2026-06-13): configure both sides → ROLL in-app (animated
+   2D6 per side) → spend support re-roll tokens → doubles flagged with
+   their own re-roll → result in big type with nations ("FRANCE WINS
+   vs PRUSSIA") and the Charge Results row+column highlighted.
+   Manual dice entry stays available for table-rolled dice. */
 "use strict";
 
 const GRADES = ["Elite", "Veteran", "Line", "Recruit"];
 const GRADE_UP = { Recruit: "Line", Line: "Veteran", Veteran: "Elite", Elite: "Elite" };
+const CH_NATIONS = ["France", "Prussia", "Russia"];
+const CH_TINT = { France: "#4a6fd4", Prussia: "#8d93a5", Russia: "#2e8b57", "—": "var(--accent)" };
 
 function blankSide(role) {
   return {
-    role, type: "inf", grade: "Line", formation: "line", unformed: false,
+    role, nation: "—", type: "inf", grade: "Line", formation: "line", unformed: false,
     garrison: false, mob: false, supports: [], general: false,
     brigade: null, unitCas: null, chargeCas: null,
     chargingOn: false, heavyCav: false, lancers: false, campaignCav: false,
@@ -20,13 +25,12 @@ function blankSide(role) {
 /* effective grade after General attached (test as next grade up) */
 function effGrade(side) { return side.general ? GRADE_UP[side.grade] : side.grade; }
 
-/* pure modifier computation → [{label, val}] */
+/* pure modifier computation → [{label, val, suppressed?}] */
 function computeChargeMods(side, opp) {
   const mods = [];
   const isCharger = side.role === "charger";
   const g = effGrade(side);
 
-  // grade (with Recruit-in-column/square exception)
   let gv = CHARGE_MODS.grade[g];
   let glabel = g + " grade";
   if (g === "Recruit" && (side.formation === "column" || side.formation === "square")) {
@@ -35,14 +39,10 @@ function computeChargeMods(side, opp) {
   if (side.general) glabel = "General attached: test as " + g + (g === side.grade ? " (already top grade)" : "");
   mods.push({ label: glabel, val: gv });
 
-  // formation
   if (side.unformed) mods.push({ label: "Unformed", val: CHARGE_MODS.formation.unformed });
   if (side.type === "inf" && opp.type === "cav") {
     if (side.formation === "column" || side.formation === "square") {
-      // §3.2b interaction logic — enforced, with the reason shown:
-      // flank/rear charge kills the column/square bonus; a 'column of
-      // mob' never gets the column bonus. Unformed square keeps its +2
-      // (both lines show, netting 0) — only these two suppress it.
+      // §3.2b interaction logic — enforced, with the reason shown.
       if (side.flankRear) {
         mods.push({ label: "Column/square +2 SUPPRESSED — charged in flank/rear gets no column bonus", val: 0, suppressed: true });
       } else if (side.mob && side.formation === "column") {
@@ -59,7 +59,6 @@ function computeChargeMods(side, opp) {
   if (side.type === "cav" && side.narrowFront)
     mods.push({ label: "Cavalry on narrower frontage", val: CHARGE_MODS.formation.cavNarrowerFrontage });
 
-  // charger-only situations
   if (isCharger) {
     if (side.chargingOn) mods.push({ label: "Charging On", val: CHARGE_MODS.charger.chargingOn });
     if (side.type === "cav" && side.heavyCav) mods.push({ label: "Heavy cavalry", val: CHARGE_MODS.charger.heavyCav });
@@ -77,11 +76,9 @@ function computeChargeMods(side, opp) {
     }
   }
 
-  // both sides: unit casualties, brigade state
   if (side.unitCas) mods.push({ label: side.unitCas + " casualties on unit", val: CHARGE_MODS.charger.unitCasualties[side.unitCas] });
   if (side.brigade) mods.push({ label: "Brigade " + side.brigade, val: CHARGE_MODS.charger.brigadeState[side.brigade] });
 
-  // defender-only
   if (!isCharger) {
     if (side.flanked) mods.push({ label: "Flanked", val: CHARGE_MODS.defender.flanked });
     if (side.flankRear) mods.push({ label: "Charged in flank/rear", val: CHARGE_MODS.defender.flankRearCharged });
@@ -97,18 +94,44 @@ function rerollSummary(side) {
   return n + " re-roll" + (n > 1 ? "s" : "") + (deg ? " (" + deg + " at −1)" : "");
 }
 
-/* ---------- UI ---------- */
-let CH; // state {charger, defender}
+function sideName(side) {
+  return side.nation !== "—" ? side.nation.toUpperCase()
+    : side.role === "charger" ? "CHARGER" : "DEFENDER";
+}
+
+/* ---------- state ---------- */
+let CH;       // {charger, defender}
+let CHR;      // roll runtime: {rolled:{}, dieApis:{}, spent flags, logged}
+
+function chrReset() {
+  CHR = { rolled: { charger: false, defender: false }, dieApis: {}, rerolls: [], logged: false };
+  CH.charger.dice = [0, 0];
+  CH.defender.dice = [0, 0];
+  CH.charger.supports.forEach(s => s.spent = false);
+  CH.defender.supports.forEach(s => s.spent = false);
+}
 
 function buildCharge() {
   CH = Store.get("charge_state", null) || { charger: blankSide("charger"), defender: blankSide("defender") };
   CH.charger.role = "charger"; CH.defender.role = "defender";
+  // session-scoped roll state never persists (dice can't be replayed from storage)
+  chrReset();
+
   const root = $("#tab-charge");
   root.innerHTML = "";
   root.append(
     h("div", { class: "duelgrid" },
       chargeSideCard(CH.charger, CH.defender),
       chargeSideCard(CH.defender, CH.charger)),
+    h("div", { class: "card", id: "charge-roll-card" },
+      h("h2", {}, "Roll the charge"),
+      h("div", { class: "duelgrid" },
+        rollPanel(CH.charger), rollPanel(CH.defender)),
+      h("button", { class: "bigbtn", id: "charge-roll-btn", onclick: rollCharge }, "⚔️ ROLL THE CHARGE — both sides 2D6"),
+      h("button", { class: "bigbtn alt", id: "charge-new-btn", style: "display:none", onclick: () => { chrReset(); buildCharge(); } }, "New charge (keep setups)"),
+      h("details", {},
+        h("summary", {}, "dice were rolled on the table — enter them instead"),
+        manualDiceRow(CH.charger), manualDiceRow(CH.defender))),
     h("div", { class: "card resultpanel", id: "charge-result" }),
     h("div", { class: "card", id: "charge-table-card" },
       h("h2", {}, "Charge results"),
@@ -126,7 +149,7 @@ function buildCharge() {
 
   indexCard("charge", "charge-table-card", "Charge results table",
     CHARGE_RESULTS.map(r => r.by + " " + r.infVsInfArty + " " + r.cavVsCav + " " + r.cavVsInfArty).join(" ")
-    + " " + CHARGE_RESULT_NOTES.join(" ") + " " + CHARGE_MODS.supports);
+    + " " + CHARGE_RESULT_NOTES.join(" ") + " " + CHARGE_MODS.supports + " destiny blunder double");
 }
 
 function singleSelect(opts, cur, onPick) {
@@ -149,17 +172,18 @@ function chargeSideCard(side, opp) {
   const card = h("div", { class: "card sidecard" + (isC ? "" : " def") });
   card.append(h("h2", {}, isC ? "Charger" : "Defender"));
 
-  // type
+  card.append(h("div", { class: "grouplabel" }, "Nation (for the result banner)"));
+  card.append(singleSelect(CH_NATIONS.map(n => ({ v: n, l: n, allowOff: true })), side.nation === "—" ? null : side.nation,
+    v => { side.nation = v || "—"; refreshCharge(); }));
+
   card.append(h("div", { class: "grouplabel" }, "Type"));
   const types = [{ v: "inf", l: "Infantry" }, { v: "cav", l: "Cavalry" }];
   if (!isC) types.push({ v: "arty", l: "Artillery" });
   card.append(singleSelect(types, side.type, v => { side.type = v || side.type; refreshCharge(); }));
 
-  // grade
   card.append(h("div", { class: "grouplabel" }, "Grade"));
   card.append(singleSelect(GRADES.map(g => ({ v: g, l: g })), side.grade, v => { side.grade = v || side.grade; refreshCharge(); }));
 
-  // formation
   card.append(h("div", { class: "grouplabel" }, "Formation"));
   const forms = [{ v: "line", l: "Line" }, { v: "column", l: "Column" }, { v: "square", l: "Square" }, { v: "garrison", l: "Garrison (BUA)" }];
   card.append(singleSelect(forms, side.formation, v => { side.formation = v || side.formation; refreshCharge(); }));
@@ -167,7 +191,6 @@ function chargeSideCard(side, opp) {
   if (side.unformed) unfChip.classList.add("on");
   card.append(h("div", { class: "chips" }, unfChip));
 
-  // supports
   card.append(h("div", { class: "grouplabel" }, "Supports (re-rolls)"));
   const supHolder = h("div", { class: "chips" });
   const renderSups = () => {
@@ -180,7 +203,7 @@ function chargeSideCard(side, opp) {
     });
   };
   const supStep = makeStepper(0, 3, side.supports.length, v => {
-    while (side.supports.length < v) side.supports.push({ degraded: false });
+    while (side.supports.length < v) side.supports.push({ degraded: false, spent: false });
     side.supports.length = v;
     renderSups(); refreshCharge();
   });
@@ -188,7 +211,6 @@ function chargeSideCard(side, opp) {
   renderSups();
   card.append(supHolder);
 
-  // situation toggles
   card.append(h("div", { class: "grouplabel" }, "Situation"));
   const sit = h("div", { class: "chips" });
   const tog = (label, sub, key, neg) => {
@@ -219,7 +241,7 @@ function chargeSideCard(side, opp) {
 
   card.append(h("div", { class: "grouplabel" }, "Casualties on unit"));
   card.append(singleSelect(
-    [{ v: null, l: "0–3", allowOff: false }, { v: "4+", l: "4–7", sub: "−1" }, { v: "8+", l: "8+", sub: "−2" }],
+    [{ v: null, l: "0–3" }, { v: "4+", l: "4–7", sub: "−1" }, { v: "8+", l: "8+", sub: "−2" }],
     side.unitCas, v => { side.unitCas = v; refreshCharge(); }));
 
   if (isC) {
@@ -229,7 +251,6 @@ function chargeSideCard(side, opp) {
       side.chargeCas, v => { side.chargeCas = v; refreshCharge(); }));
   }
 
-  // net + why
   card.append(
     h("div", { class: "netrow" },
       h("span", { class: "netmod", id: "net-" + side.role }, "+0"),
@@ -238,13 +259,112 @@ function chargeSideCard(side, opp) {
       h("summary", {}, "why?"),
       h("ul", { class: "whylist", id: "whylist-" + side.role })),
     h("div", { class: "sub", id: "rr-" + side.role }));
-
-  // dice entry
-  card.append(h("div", { class: "grouplabel" }, "Dice (2D6 rolled at the table)"));
-  const d1 = makeStepper(0, 6, side.dice[0], v => { side.dice[0] = v; refreshCharge(); });
-  const d2 = makeStepper(0, 6, side.dice[1], v => { side.dice[1] = v; refreshCharge(); });
-  card.append(h("div", { class: "flagrow" }, d1.el, d2.el));
   return card;
+}
+
+/* ---------- roll flow ---------- */
+
+function rollPanel(side) {
+  const box = h("div", { style: "text-align:center;" });
+  box.append(
+    h("div", { class: "grouplabel", id: "rolllabel-" + side.role }, side.role),
+    h("div", { class: "dicepair", "data-ch-dice": side.role }),
+    h("div", { class: "totalbig", "data-ch-total": side.role }, ""),
+    h("div", { class: "totalsub", "data-ch-sub": side.role }, ""),
+    h("div", { "data-ch-double": side.role }),
+    h("div", { class: "chips", style: "justify-content:center;", "data-ch-tokens": side.role }));
+  return box;
+}
+
+function manualDiceRow(side) {
+  const d1 = makeStepper(0, 6, 0, v => { side.dice[0] = v; CHR.rolled[side.role] = side.dice.every(d => d >= 1); refreshCharge(); });
+  const d2 = makeStepper(0, 6, 0, v => { side.dice[1] = v; CHR.rolled[side.role] = side.dice.every(d => d >= 1); refreshCharge(); });
+  return h("div", { class: "flagrow" }, h("span", { class: "sub", style: "width:90px;" }, side.role), d1.el, d2.el);
+}
+
+function rollCharge() {
+  if (CHR.rolled.charger || CHR.rolled.defender) return;
+  for (const side of [CH.charger, CH.defender]) {
+    const wrap = $('[data-ch-dice="' + side.role + '"]');
+    wrap.innerHTML = "";
+    const red = side.role === "defender";
+    CHR.dieApis[side.role] = [makeDie(red), makeDie(red)];
+    wrap.append(CHR.dieApis[side.role][0].el, CHR.dieApis[side.role][1].el);
+  }
+  $("#charge-roll-btn").style.display = "none";
+  $("#charge-new-btn").style.display = "block";
+  // setTimeout, NOT requestAnimationFrame: rAF is suspended in hidden/
+  // backgrounded tabs, which left the roll permanently stuck.
+  setTimeout(() => {
+    for (const side of [CH.charger, CH.defender]) {
+      side.dice = [CHR.dieApis[side.role][0].roll(d6()), CHR.dieApis[side.role][1].roll(d6())];
+      CHR.rolled[side.role] = true;
+    }
+    setTimeout(refreshCharge, 650);
+  }, 50);
+}
+
+function chTokens(side) {
+  const wrap = $('[data-ch-tokens="' + side.role + '"]');
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!CHR.rolled[side.role]) return;
+  side.supports.forEach(sp => {
+    const tok = h("button", { class: "token" + (sp.spent ? " spent" : "") },
+      h("span", { class: "mini" }), "re-roll" + (sp.degraded ? " −1" : ""));
+    tok.addEventListener("click", () => { if (!sp.spent) chSpendToken(side, sp, tok); });
+    wrap.append(tok);
+  });
+}
+
+function chSpendToken(side, sp, tok) {
+  const pick = h("div", { class: "chips", style: "justify-content:center;" },
+    h("span", { class: "sub" }, "Re-roll which die?"),
+    h("button", { class: "chip" }, "Die 1 (" + side.dice[0] + ")"),
+    h("button", { class: "chip" }, "Die 2 (" + side.dice[1] + ")"),
+    h("button", { class: "chip neg" }, "cancel"));
+  tok.after(pick);
+  const btns = $$("button.chip", pick);
+  const doRe = idx => {
+    pick.remove();
+    sp.spent = true;
+    let v = d6();
+    if (sp.degraded) v = Math.max(1, v - 1);
+    const apis = CHR.dieApis[side.role];
+    if (apis) { apis[idx].roll(v); apis[idx].mark(sp.degraded); }
+    side.dice[idx] = v;   // the new face STANDS
+    CHR.rerolls.push(side.role + " die" + (idx + 1) + "→" + v + (sp.degraded ? " (−1)" : ""));
+    setTimeout(refreshCharge, 650);
+  };
+  btns[0].addEventListener("click", () => doRe(0));
+  btns[1].addEventListener("click", () => doRe(1));
+  btns[2].addEventListener("click", () => pick.remove());
+}
+
+/* Destiny / blunder doubles — the SPEC defines that double 6 on an
+   initial 2D6 is Destiny but NOT its effect, and does not define
+   double 1. Flag both, offer the re-roll Andy wants, point at the
+   umpire for the effect. Never invent rules content. */
+function chDoubles(side) {
+  const holder = $('[data-ch-double="' + side.role + '"]');
+  if (!holder) return;
+  holder.innerHTML = "";
+  if (!CHR.rolled[side.role]) return;
+  const [a, b] = side.dice;
+  if (a !== b || (a !== 1 && a !== 6)) return;
+  const label = a === 6 ? "⚡ DOUBLE 6 — DESTINY!" : "💀 DOUBLE 1 — blunder!";
+  holder.append(
+    h("div", { class: "trigbanner flash", style: "margin:6px 0;" }, label + " Effect: ask the umpire."),
+    h("button", {
+      class: "bigbtn alt", style: "min-height:46px;margin:4px 0;", onclick: () => {
+        const apis = CHR.dieApis[side.role];
+        const v1 = d6(), v2 = d6();
+        if (apis) { apis[0].roll(v1); apis[1].roll(v2); }
+        side.dice = [v1, v2];
+        CHR.rerolls.push(side.role + " " + label.replace(/[⚡💀] /, "") + " re-roll → " + v1 + "+" + v2);
+        setTimeout(refreshCharge, 650);
+      }
+    }, "Re-roll this side's 2D6 (result will be highlighted)"));
 }
 
 function refreshCharge() {
@@ -274,51 +394,78 @@ function refreshCharge() {
     }
   }
 
+  // roll panels
+  for (const [side, net] of [[CH.charger, cNet], [CH.defender, dNet]]) {
+    const lab = $("#rolllabel-" + side.role);
+    if (lab) lab.textContent = sideName(side) + "  (" + fmtMod(net) + ")";
+    const tot = $('[data-ch-total="' + side.role + '"]');
+    const sub = $('[data-ch-sub="' + side.role + '"]');
+    if (tot && CHR.rolled[side.role]) {
+      tot.textContent = String(side.dice[0] + side.dice[1] + net);
+      sub.textContent = side.dice[0] + " + " + side.dice[1] + "  " + fmtMod(net) + " mod";
+    } else if (tot) { tot.textContent = ""; sub.textContent = ""; }
+    chTokens(side);
+    chDoubles(side);
+  }
+
   // result
   const res = $("#charge-result");
+  if (!res) return;
   res.innerHTML = "";
   res.append(h("h2", {}, "Result"));
-  const diceOk = CH.charger.dice.every(d => d >= 1) && CH.defender.dice.every(d => d >= 1);
   const colKey = chargeColKey(CH.charger.type, CH.defender.type);
+  const diceOk = CHR.rolled.charger && CHR.rolled.defender
+    && CH.charger.dice.every(d => d >= 1) && CH.defender.dice.every(d => d >= 1);
 
+  let band = null;
   if (!diceOk) {
-    res.append(h("p", { class: "sub" }, "Enter both sides' 2D6 above. Net modifiers update live as you tap."));
-    res.append(h("p", { class: "sub" },
-      "Charger " + fmtMod(cNet) + " · Defender " + fmtMod(dNet) + " · column: " + COL_LABELS[colKey]));
+    res.append(h("p", { class: "sub" }, "Set both sides up, then ROLL THE CHARGE. " +
+      "Net: " + sideName(CH.charger) + " " + fmtMod(cNet) + " · " + sideName(CH.defender) + " " + fmtMod(dNet) +
+      " · column: " + COL_LABELS[colKey]));
   } else {
     const cTot = CH.charger.dice[0] + CH.charger.dice[1] + cNet;
     const dTot = CH.defender.dice[0] + CH.defender.dice[1] + dNet;
     const diff = cTot - dTot;
-    const band = chargeBand(diff);
+    band = chargeBand(diff);
     const outcome = band[colKey];
-    res.append(
-      h("p", { class: "totalsub" },
-        "Charger " + (CH.charger.dice[0] + CH.charger.dice[1]) + " " + fmtMod(cNet) + " = " + cTot +
-        "  ·  Defender " + (CH.defender.dice[0] + CH.defender.dice[1]) + " " + fmtMod(dNet) + " = " + dTot),
-      h("div", { class: "bigdiff " + (diff >= 0 ? "good" : "bad") },
-        diff > 0 ? "WON BY " + diff : diff === 0 ? "TIED" : "LOST BY " + (-diff)),
-      h("div", { class: "sub" }, COL_LABELS[colKey] + " · row " + band.by),
-      h("div", { class: "outcome " + (diff >= 1 ? "good" : "bad") }, outcome));
+    const winnerSide = diff > 0 ? CH.charger : diff < 0 ? CH.defender : null;
+
+    if (winnerSide) {
+      const loserSide = winnerSide === CH.charger ? CH.defender : CH.charger;
+      res.append(h("div", {
+        class: "bigdiff", style: "color:" + CH_TINT[winnerSide.nation]
+      }, sideName(winnerSide) + " WINS"));
+      res.append(h("div", { class: "sub" },
+        "vs " + sideName(loserSide) + " · by " + Math.abs(diff) + " · " +
+        cTot + " plays " + dTot + " · " + COL_LABELS[colKey] + " row " + band.by));
+    } else {
+      res.append(h("div", { class: "bigdiff" }, "TIED"), h("div", { class: "sub" }, cTot + " apiece — row " + band.by));
+    }
+    res.append(h("div", { class: "outcome " + (diff >= 1 ? "good" : "bad") }, outcome));
     if (/Volley!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[0]));
     if (/Victory!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[1]));
     if (/Melee|Élan/.test(outcome))
       res.append(h("button", { class: "bigbtn", onclick: () => openMelee(CH, outcome) }, "Resolve melee →"));
-  }
-  res.append(h("button", {
-    class: "bigbtn alt", onclick: () => {
-      Store.set("rolloff_handoff", {
-        type: colKey,
-        sides: [
-          { name: "Charger", mods: computeChargeMods(CH.charger, CH.defender), supports: CH.charger.supports },
-          { name: "Defender", mods: computeChargeMods(CH.defender, CH.charger), supports: CH.defender.supports }
-        ]
-      });
-      buildRolloff(); showTab("rolloff");
+    if (!CHR.logged) {
+      res.append(h("button", {
+        class: "bigbtn alt", onclick: ev => {
+          CHR.logged = true;
+          SessionLog.add({
+            kind: "duel",
+            detail: sideName(CH.charger) + " " + CH.charger.dice.join("+") + fmtMod(cNet) + "=" + cTot +
+              " vs " + sideName(CH.defender) + " " + CH.defender.dice.join("+") + fmtMod(dNet) + "=" + dTot +
+              (CHR.rerolls.length ? " [" + CHR.rerolls.join("; ") + "]" : ""),
+            winner: winnerSide ? sideName(winnerSide) : "tie",
+            result: outcome
+          });
+          ev.target.textContent = "✓ logged";
+          ev.target.disabled = true;
+        }
+      }, "Log this charge"));
     }
-  }, "Resolve as Roll-Off 🎲"));
+  }
 
   const holder = $("#charge-table-holder");
   holder.innerHTML = "";
-  const band = diceOk ? chargeBand((CH.charger.dice[0] + CH.charger.dice[1] + cNet) - (CH.defender.dice[0] + CH.defender.dice[1] + dNet)) : null;
   holder.append(renderChargeTable(band, colKey));
 }

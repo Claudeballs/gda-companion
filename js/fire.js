@@ -7,6 +7,39 @@
 "use strict";
 
 let FI = null;
+let FIR = { dieApis: null, appRolled: false };
+
+function fireBonusCDCount() {
+  return FIRE_CD_CHIPS[FI.mode].filter(m => FI.cdMods.includes(m.id)).reduce((s, m) => s + m.cd, 0);
+}
+
+function rollFire() {
+  const wrap = $("#fire-dice");
+  wrap.innerHTML = "";
+  FIR.dieApis = [makeDie(false), makeDie(false)];
+  wrap.append(FIR.dieApis[0].el, FIR.dieApis[1].el);
+  FIR.appRolled = true;
+  setTimeout(() => {
+    FI.dice = [FIR.dieApis[0].roll(d6()), FIR.dieApis[1].roll(d6())];
+    // bonus CD rolled automatically, hits on 4–6
+    const n = fireBonusCDCount();
+    const faces = [];
+    for (let i = 0; i < n; i++) faces.push(d6());
+    FI.bonusHits = faces.filter(f => f >= 4).length;
+    const fw = $("#fire-bonus-faces");
+    fw.innerHTML = "";
+    for (const f of faces)
+      fw.append(h("span", { class: "token" + (f >= 4 ? "" : " spent"), style: "min-height:36px;" },
+        h("span", { class: "mini" }), String(f) + (f >= 4 ? " hit" : "")));
+    setTimeout(fireOut, 650);
+  }, 50);
+}
+
+function fireReroll2D6() {
+  if (!FIR.dieApis) return;
+  FI.dice = [FIR.dieApis[0].roll(d6()), FIR.dieApis[1].roll(d6())];
+  setTimeout(fireOut, 650);
+}
 
 const FIRE_SCORE_CHIPS = {
   infantry: [
@@ -55,6 +88,7 @@ function fireDefaults() {
 
 function buildFire() {
   FI = Store.get("fire_state2", null) || fireDefaults();
+  FIR = { dieApis: null, appRolled: false };
   const root = $("#tab-fire");
   root.innerHTML = "";
   const card = h("div", { class: "card", id: "fire-card" }, h("h2", {}, "Fire calculator (verified model)"));
@@ -140,14 +174,25 @@ function buildFire() {
   }
   card.append(cWrap);
 
-  // dice entry
-  card.append(h("div", { class: "grouplabel" }, "The 2D6 fire roll"));
-  const d1 = makeStepper(0, 6, FI.dice[0], v => { FI.dice[0] = v; fireOut(); });
-  const d2 = makeStepper(0, 6, FI.dice[1], v => { FI.dice[1] = v; fireOut(); });
-  card.append(h("div", { class: "flagrow" }, d1.el, d2.el));
-
-  card.append(h("div", { class: "grouplabel" }, "Bonus-CD hits rolled (4–6 each)"));
-  card.append(makeStepper(0, 12, FI.bonusHits, v => { FI.bonusHits = v; fireOut(); }).el);
+  // dice — app rolls everything: the 2D6 AND the bonus CD (hits 4–6
+  // counted automatically). Manual entry stays as a fallback for
+  // table-rolled dice.
+  card.append(h("div", { class: "grouplabel" }, "The fire roll"));
+  card.append(
+    h("div", { class: "dicepair", id: "fire-dice" }),
+    h("div", { class: "chips", id: "fire-bonus-faces", style: "justify-content:center;" }),
+    h("div", { id: "fire-double" }),
+    h("button", { class: "bigbtn", id: "fire-roll-btn", onclick: rollFire }, "💥 ROLL FIRE — 2D6 + bonus CD"));
+  card.append(h("details", {},
+    h("summary", {}, "dice were rolled on the table — enter them instead"),
+    (() => {
+      const d1 = makeStepper(0, 6, FI.dice[0], v => { FI.dice[0] = v; FIR.appRolled = false; fireOut(); });
+      const d2 = makeStepper(0, 6, FI.dice[1], v => { FI.dice[1] = v; FIR.appRolled = false; fireOut(); });
+      const bh = makeStepper(0, 12, FI.bonusHits, v => { FI.bonusHits = v; fireOut(); });
+      return h("div", {},
+        h("div", { class: "flagrow" }, h("span", { class: "sub" }, "2D6"), d1.el, d2.el),
+        h("div", { class: "flagrow" }, h("span", { class: "sub" }, "bonus hits"), bh.el));
+    })()));
 
   root.append(card);
   root.append(h("div", { class: "card resultpanel", id: "fire-out" }));
@@ -204,8 +249,22 @@ function fireOut() {
   if (/FD/.test(cell)) flags.push("FD — " + (cell.includes("if Recruit") ? "only if firer is Recruit: " : "") + "firer loses Fire Discipline");
   if (/FC/.test(cell)) flags.push("FC — battery takes a Fatigue Casualty (2 on Assault Fire; Elite/Large ignore the first)");
   if (/DT/.test(cell)) flags.push("DT — target takes a Discipline Test");
-  if (FI.dice[0] === 6 && FI.dice[1] === 6) flags.push("DOUBLE 6 — Destiny!");
-  if (FI.mode === "artillery" && FI.dice[0] === 1 && FI.dice[1] === 1) flags.push("DOUBLE 1 — battery Low on Ammunition");
+
+  // doubles banner + re-roll (the effect of Destiny is not in the
+  // spec — flag it, offer the re-roll, point at the umpire)
+  const dbl = $("#fire-double");
+  if (dbl) {
+    dbl.innerHTML = "";
+    const isD6 = FI.dice[0] === 6 && FI.dice[1] === 6;
+    const isD1 = FI.dice[0] === 1 && FI.dice[1] === 1;
+    if (isD6 || isD1) {
+      let label = isD6 ? "⚡ DOUBLE 6 — DESTINY! Effect: ask the umpire."
+        : (FI.mode === "artillery" ? "💀 DOUBLE 1 — battery Low on Ammunition." : "💀 DOUBLE 1 — blunder! Effect: ask the umpire.");
+      dbl.append(h("div", { class: "trigbanner flash", style: "margin:6px 0;" }, label));
+      if (FIR.appRolled) dbl.append(h("button", { class: "bigbtn alt", style: "min-height:46px;", onclick: fireReroll2D6 },
+        "Re-roll the 2D6 (result will be highlighted)"));
+    }
+  }
 
   let total = base + FI.bonusHits;
   const chain = [

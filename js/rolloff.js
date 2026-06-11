@@ -279,7 +279,7 @@ function roRoll(s) {
   s.dieApis = [makeDie(red), makeDie(red)];
   wrap.append(s.dieApis[0].el, s.dieApis[1].el);
   $('[data-ro-roll="' + s.name + '"]').style.display = "none";
-  requestAnimationFrame(() => requestAnimationFrame(() => {
+  setTimeout(() => {
     s.dice = [s.dieApis[0].roll(d6()), s.dieApis[1].roll(d6())];
     setTimeout(() => {
       roShowTotal(s);
@@ -288,7 +288,7 @@ function roRoll(s) {
       $('[data-ro-lock="' + s.name + '"]').style.display = "block";
       roVerdict();
     }, 620);
-  }));
+  }, 50);
 }
 
 function roShowTotal(s) {
