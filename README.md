@@ -1,5 +1,8 @@
 # GdA Companion
 
+**Live app: https://claudeballs.github.io/gda-companion/** — open it on a phone and Add to Home Screen. Works offline after the first visit.
+**Install card (print for the club): https://claudeballs.github.io/gda-companion/install-card.html**
+
 Table companion for **Général d'Armée (1st Edition)** at 28mm — phone-first,
 offline-first, zero typing in the core flows. Built to be faster than the
 rulebook for everything it covers.
