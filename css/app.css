@@ -195,7 +195,7 @@ table.ft th { background: var(--card2); }
 td.r-Obey { color: var(--good); font-weight: 700; }
 td.r-Rally { color: var(--accent2); font-weight: 700; }
 td.r-Retire { color: var(--warn); font-weight: 700; }
-td.r-Sauve\! , td.r-Sauve { color: var(--bad); font-weight: 800; }
+td.r-Sauve { color: var(--bad); font-weight: 800; }
 
 /* search */
 #searchpanel { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: none; flex-direction: column; }

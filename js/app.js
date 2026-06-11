@@ -182,7 +182,9 @@ const SessionLog = {
 /* ---------- search ---------- */
 const SearchIndex = []; // {tab, cardId, title, text}
 function indexCard(tab, cardId, title, text) {
-  SearchIndex.push({ tab, cardId, title, text: (title + " " + text).toLowerCase() });
+  const entry = { tab, cardId, title, text: (title + " " + text).toLowerCase() };
+  const i = SearchIndex.findIndex(e => e.tab === tab && e.cardId === cardId);
+  if (i >= 0) SearchIndex[i] = entry; else SearchIndex.push(entry);
 }
 function runSearch(q) {
   const res = $("#searchresults");
