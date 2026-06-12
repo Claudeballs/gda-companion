@@ -160,7 +160,17 @@ function buildCharge() {
       h("div", { class: "duelgrid" },
         rollPanel(CH.charger), rollPanel(CH.defender)),
       h("button", { class: "bigbtn", id: "charge-roll-btn", onclick: rollCharge }, "⚔️ ROLL THE CHARGE — both sides 2D6"),
-      h("button", { class: "bigbtn alt", id: "charge-new-btn", style: "display:none", onclick: () => { chrReset(); buildCharge(); } }, "New charge — SAME troops (fresh dice, setups kept)"),
+      h("button", {
+        class: "bigbtn alt", id: "charge-new-btn", style: "display:none", onclick: () => {
+          // Charge On / echelon: the attacker fights on — keep his
+          // whole setup, but defensive-fire casualties are per-charge
+          // and the new target is configured from blank.
+          CH.charger.fireCas = 0;
+          CH.defender = blankSide("defender");
+          Store.set("charge_state", CH);
+          chrReset(); buildCharge();
+        }
+      }, "New charge — same attacker, new target"),
       h("button", {
         class: "bigbtn alt", id: "charge-clear-btn", style: "display:none", onclick: () => {
           CH = { charger: blankSide("charger"), defender: blankSide("defender") };
