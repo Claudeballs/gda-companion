@@ -2,7 +2,10 @@
    Strategy: network-first with cache fallback. Online users always get
    the latest deploy; offline users get the full cached app. Bump
    VERSION on every deploy that changes files. */
-const VERSION = "gda-v6";
+/* NOTE: index.html asset URLs carry ?v=N for browser-cache busting —
+   bump BOTH that and this VERSION on every deploy. The fetch handler
+   matches with ignoreSearch so the precache serves any ?v=. */
+const VERSION = "gda-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -46,6 +49,6 @@ self.addEventListener("fetch", e => {
         return resp;
       })
       .catch(() =>
-        caches.match(e.request).then(hit =>
+        caches.match(e.request, { ignoreSearch: true }).then(hit =>
           hit || caches.match("./index.html"))));
 });

@@ -168,6 +168,15 @@ function buildFire() {
       const i = FI.cdMods.indexOf(m.id);
       if (i >= 0) { FI.cdMods.splice(i, 1); chip.classList.remove("on"); }
       else { FI.cdMods.push(m.id); chip.classList.add("on"); }
+      // CD chips changed after an app roll → the rolled bonus dice no
+      // longer match the declared CD; clear them and fall back to the
+      // manual prompt rather than pretending the old faces still apply.
+      if (FIR.appRolled) {
+        FIR.appRolled = false;
+        FI.bonusHits = 0;
+        const fw = $("#fire-bonus-faces");
+        if (fw) fw.innerHTML = "";
+      }
       fireOut(); buzz(10);
     });
     cWrap.append(chip);
@@ -270,7 +279,8 @@ function fireOut() {
   const chain = [
     raw + " rolled " + (scoreMod ? fmtMod(scoreMod) + " = " + score : "(no score mods)"),
     FIRING_LINES[lineKey].label + " line → " + cell + " base",
-    FI.bonusHits ? "+ " + FI.bonusHits + " bonus-CD hit" + (FI.bonusHits > 1 ? "s" : "") + " (of " + bonusCD + " CD)" : null
+    FI.bonusHits ? "+ " + FI.bonusHits + " bonus-CD hit" + (FI.bonusHits > 1 ? "s" : "") + " (of " + bonusCD + " CD)"
+      : (bonusCD && FIR.appRolled ? bonusCD + " bonus CD rolled — NO hits" : null)
   ].filter(Boolean);
 
   const firerHalves = FI.mode === "infantry" && (FI.firerFormation === "column" || FI.firerFormation === "square");
@@ -282,7 +292,10 @@ function fireOut() {
   out.append(h("div", { class: "bigdiff good" }, total + " casualt" + (total === 1 ? "y" : "ies")));
   out.append(h("p", { class: "totalsub" }, chain.join("  ·  ")));
   for (const f of flags) out.append(h("p", { class: "note" }, f));
-  if (bonusCD && FI.bonusHits === 0)
+  // Manual mode only: prompt for unrolled bonus dice. After an app
+  // roll the bonus dice are already decided — misses are misses, no
+  // prompting to roll dice whose fate is settled.
+  if (bonusCD && FI.bonusHits === 0 && !FIR.appRolled)
     out.append(h("p", { class: "sub" }, "You have " + bonusCD + " bonus CD — roll them (hits on 4–6) and enter the hits above."));
   out.append(h("p", { class: "sub" }, FIRE_RULES.measurement));
 }
