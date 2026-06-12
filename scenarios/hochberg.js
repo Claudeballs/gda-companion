@@ -16,8 +16,8 @@ window.GDA_SCENARIOS.push({
   "triggers": [
     { "turn": 1, "text": "Sacken arrives — full northern edge" },
     { "turn": 4, "text": "Yorck arrives — NE corner within 24\"" },
-    { "turns": [6, 8, 10, 12, 14, 16], "type": "roll", "id": "lancers",
-      "text": "French lancer roll — 1D6: on a 6, two lancer regiments enter from the southern rear edge (1 ADC to release; they JOIN the French cavalry brigade — part of it for command, taskings, support and falter purposes).",
+    { "turns": [4, 6, 8, 10, 12, 14, 16], "type": "roll", "id": "lancers",
+      "text": "French lancer roll — 1D6: on a 5–6, two lancer regiments enter from the southern rear edge (1 ADC to release; they JOIN the French cavalry brigade — part of it for command, taskings, support and falter purposes).",
       "onceOnly": true },
     { "turn": 16, "text": "LAST TURN — score objectives & dispersals." }
   ],
