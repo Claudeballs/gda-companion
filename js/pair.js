@@ -103,17 +103,36 @@ function scanQR(onResult, onError) {
 const Pair = {
   pc: null, ch: null, onMessage: null, onOpen: null, onClose: null, linked: false,
 
+  onIceState: null,
+
   _newPc() {
-    // no STUN/TURN: host candidates only — exactly right for a LAN
-    // or one phone's hotspot, and keeps the QR payload small.
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    // STUN added as belt-and-braces: on networks where mDNS local
+    // candidates can't be resolved between phones, a reflexive
+    // candidate sometimes still connects. Harmless when unreachable.
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pc.onconnectionstatechange = () => {
       if (["disconnected", "failed", "closed"].includes(pc.connectionState) && Pair.linked) {
         Pair.linked = false;
         Pair.onClose && Pair.onClose();
       }
     };
+    pc.oniceconnectionstatechange = () => {
+      Pair.onIceState && Pair.onIceState(pc.iceConnectionState);
+    };
     return pc;
+  },
+
+  /* Mobile browsers hide the phone's REAL local address behind an
+     mDNS name until a camera/mic permission is granted — and many
+     routers block mDNS between wireless clients, which kills the
+     link. Warming the camera up FIRST puts real addresses in our
+     connection offer. (The guest already has camera permission from
+     scanning; the host didn't until step 2 — too late.) */
+  async camWarmup() {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: true });
+      s.getTracks().forEach(t => t.stop());
+    } catch (e) { /* denied — proceed; mDNS candidates may still work */ }
   },
 
   _wire(ch) {
@@ -138,7 +157,7 @@ const Pair = {
   async iceComplete(pc) {
     if (pc.iceGatheringState === "complete") return;
     await new Promise(res => {
-      const t = setTimeout(res, 3000);   // don't hang forever on odd networks
+      const t = setTimeout(res, 6000);   // don't hang forever on odd networks
       pc.onicegatheringstatechange = () => {
         if (pc.iceGatheringState === "complete") { clearTimeout(t); res(); }
       };
@@ -148,6 +167,7 @@ const Pair = {
   /* host side: returns the offer text to show as a QR */
   async hostStart() {
     Pair.close();
+    await Pair.camWarmup();   // real local addresses in the offer
     Pair.pc = Pair._newPc();
     Pair._wire(Pair.pc.createDataChannel("duel"));
     await Pair.pc.setLocalDescription(await Pair.pc.createOffer());

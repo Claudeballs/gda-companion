@@ -1,3 +1,5 @@
+window.GDA_VERSION = "16";   // shown on the Duel tab; bump with sw VERSION
+
 /* ============================================================
    GdA Companion — embedded rules data (SPEC v2, 2026-06-12).
    §10 content is VERIFIED against rulebook & FAQ by the umpire.

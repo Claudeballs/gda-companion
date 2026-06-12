@@ -111,6 +111,8 @@ function duMenu() {
   const log = h("div", { class: "card", id: "ro-log" }, h("h2", {}, "Duel log"));
   duRenderLog(log);
   root.append(log);
+  root.append(h("p", { class: "sub", style: "text-align:center;opacity:.6;" },
+    "app version " + (window.GDA_VERSION || "?") + " — both phones must match to pair"));
   indexCard("rolloff", "duel-menu", "Duel two phones paired QR roll-off initiative",
     "host join scan QR webrtc verified fair plain roll-off opposed test");
 }
@@ -153,9 +155,13 @@ async function duHost() {
         const scanBox = h("div", {});
         card.append(scanBox);
         const sc = scanQR(async data => {
-          try { await Pair.hostFinish(data); scanBox.innerHTML = "<p class='sub'>Reply accepted — linking…</p>"; }
+          try {
+            await Pair.hostFinish(data);
+            scanBox.innerHTML = "<p class='sub'>Reply accepted — linking…</p>";
+            duLinkWatch(scanBox);
+          }
           catch (e) { scanBox.append(h("p", { class: "walkerr" }, "That wasn't a reply code — try again.")); }
-        }, err => duCameraFallback(scanBox, async t => { await Pair.hostFinish(t); }));
+        }, err => duCameraFallback(scanBox, async t => { await Pair.hostFinish(t); duLinkWatch(scanBox); }));
         DU.scanners.push(sc);
         scanBox.append(sc.el);
       }
@@ -183,6 +189,7 @@ function duJoin() {
         renderQR(answer, 250),
         h("p", { class: "sub" }, "Waiting for the link…"),
         h("details", {}, h("summary", {}, "camera trouble on their side?"), duManualOut(answer)));
+      duLinkWatch(scanBox);
     } catch (e) {
       scanBox.append(h("p", { class: "walkerr" }, "That wasn't a host code — try again."));
     }
@@ -217,8 +224,29 @@ function duManualIn(onText) {
 }
 
 /* ---------- the live duel ---------- */
+
+/* link-state readout + a 20s stall watchdog with the fix that works
+   on device-isolating club Wi-Fi: one phone's personal hotspot */
+function duLinkWatch(container) {
+  container.append(h("p", { class: "sub", id: "du-ice-status" }, "link state: starting…"));
+  clearTimeout(DU.linkTimer);
+  DU.linkTimer = setTimeout(() => {
+    if (DU.stage !== "linked") {
+      container.append(h("div", { class: "walkerr" },
+        h("b", {}, "Phones can't reach each other. "),
+        "The usual culprit is Wi-Fi that isolates devices (very common on club and guest networks). " +
+        "The reliable fix: turn ON a personal hotspot on ONE of the two phones, connect the OTHER phone to that hotspot, " +
+        "then tap ✕ on both and pair again. Also make sure BOTH phones show the same app version (bottom of this tab)."));
+    }
+  }, 20000);
+}
+
 function duWirePair() {
-  Pair.onOpen = () => { DU.stage = "linked"; duSendHello(); duSendMods(); duelScreen(); buzz(60); };
+  Pair.onIceState = st => {
+    const el = $("#du-ice-status");
+    if (el) el.textContent = "link state: " + st;
+  };
+  Pair.onOpen = () => { clearTimeout(DU.linkTimer); DU.stage = "linked"; duSendHello(); duSendMods(); duelScreen(); buzz(60); };
   Pair.onClose = () => {
     if (DU.stage === "linked" || DU.stage === "pairing") {
       DU.stage = "dropped";
