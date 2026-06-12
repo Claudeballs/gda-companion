@@ -108,7 +108,13 @@ function buildFire() {
   };
 
   single("Firer", [{ v: "infantry", l: "Infantry / skirmishers" }, { v: "artillery", l: "Artillery" }],
-    FI.mode, v => { FI.mode = v; buildFire(); });
+    FI.mode, v => {
+      FI.mode = v;
+      // buildFire() reloads FI from storage — persist the switch FIRST
+      // or it silently snaps back (the "artillery doesn't work" bug).
+      Store.set("fire_state2", FI);
+      buildFire();
+    });
 
   if (FI.mode === "infantry") {
     single("Results line", [
