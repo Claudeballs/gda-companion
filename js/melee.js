@@ -205,12 +205,34 @@ function meleeSideCard(side) {
   if (side.elanAttackCol) eac.classList.add("on");
   card.append(h("div", { class: "chips" }, elan, eac));
 
-  card.append(h("div", { class: "grouplabel" }, "Casualties CAUSED by this side (round " + MEL.round + ") — hits on 4–6"));
-  card.append(makeStepper(0, 20, side.cas, v => { side.cas = v; meleeResult(); }).el);
-
-  card.append(h("div", { class: "grouplabel" }, "Pyrrhic check — this side's force"));
+  // damage DEALT: roll this side's CD pool — in-app (auto-counted) or
+  // from table dice via the stepper. Winner = most casualties caused.
+  card.append(h("div", { class: "grouplabel" }, "Damage DEALT by " + side.name + " (round " + MEL.round + ")"));
+  const facesRow = h("div", { class: "chips" });
+  if (side._faces) {
+    for (const f of side._faces)
+      facesRow.append(h("span", { class: "token" + (f >= 4 ? "" : " spent"), style: "min-height:36px;" },
+        h("span", { class: "mini" }), f + (f >= 4 ? " hit" : "")));
+  }
+  card.append(h("button", {
+    class: "bigbtn", style: "min-height:46px;", onclick: () => {
+      const cd = side.units.reduce((t, u) => t + unitCD(u, side), 0);
+      side._faces = Array.from({ length: cd }, () => d6());
+      side._rolledCD = cd;
+      side.cas = side._faces.filter(f => f >= 4).length;
+      buzz(25);
+      renderMelee();
+    }
+  }, "🎲 Roll " + side.name + "'s CD — hits (4–6) counted for you"));
+  card.append(facesRow);
   card.append(h("div", { class: "flagrow" },
-    h("span", { class: "sub", style: "width:130px;" }, "casualties NOW"),
+    h("span", { class: "sub", style: "max-width:170px;" }, "casualties INFLICTED on the enemy (or enter from table dice)"),
+    makeStepper(0, 20, side.cas, v => { side.cas = v; side._faces = null; meleeResult(); }).el));
+
+  card.append(h("div", { class: "grouplabel" }, "Pyrrhic check — casualties ON " + side.name + "'s own force"));
+  card.append(h("p", { class: "sub" }, "Their own accumulated total (including this round's losses) vs their dispersal point — reaching it while winning FLIPS the result."));
+  card.append(h("div", { class: "flagrow" },
+    h("span", { class: "sub", style: "width:130px;" }, "own casualties NOW"),
     makeStepper(0, 30, side.curCas, v => { side.curCas = v; meleeResult(); }).el));
   card.append(h("div", { class: "flagrow" },
     h("span", { class: "sub", style: "width:130px;" }, "dispersal point"),
@@ -249,6 +271,9 @@ function meleeResult() {
     res.append(h("p", { class: "sub" },
       s.name + ": " + s.units.filter(u => u.inFight).length + " unit(s) · " + cd + " CD total (hits on 4–6, min 1/unit)" +
       (s.elan ? " · Élan" : "")));
+    if (s._faces && s._rolledCD !== cd)
+      res.append(h("p", { class: "walkerr" }, h("b", {}, s.name + ": "),
+        "the CD pool changed after the roll (" + s._rolledCD + " rolled, now " + cd + ") — re-roll or adjust the casualties manually."));
     s._cd = cd;
   }
 
