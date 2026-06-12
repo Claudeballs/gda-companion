@@ -118,6 +118,18 @@ const MeleeQueue = {
 let CH;       // {charger, defender}
 let CHR;      // roll runtime: {rolled:{}, dieApis:{}, spent flags, logged}
 
+/* called by the Fire tab's defensive-fire tally — keeps the charger's
+   fire-casualty count in step with the running total over there */
+function setChargeFireCas(total) {
+  if (!CH) return;
+  CH.charger.fireCas = total;
+  Store.set("charge_state", CH);
+  // rebuild only if the charge hasn't been rolled yet (defensive fire
+  // precedes the test; post-roll the dice stand)
+  if (!CHR || (!CHR.rolled.charger && !CHR.rolled.defender)) buildCharge();
+  else refreshCharge();
+}
+
 function chrReset() {
   CHR = { rolled: { charger: false, defender: false }, dieApis: {}, rerolls: [], logged: false };
   CH.charger.dice = [0, 0];
@@ -150,11 +162,28 @@ function buildCharge() {
         "Now the defender's CLOSING and SUPPORTING fire happens: a screened target's whole skirmish " +
         "screen evades and fires first (vs infantry only), then close-order defensive fire. " +
         "ALL casualties — screen plus close order — count toward the charger's test."),
-      h("button", { class: "bigbtn alt", onclick: () => showTab("fire") }, "Resolve the fire on the Fire tab →"),
+      h("button", { class: "bigbtn alt", onclick: () => showTab("fire") }, "Resolve each firer on the Fire tab → (tally feeds back here)"),
+      (() => {
+        const tally = Store.get("deffire_tally", []);
+        if (!tally.length) return null;
+        const box = h("div", { class: "note" },
+          h("b", {}, "Fire-tab tally: "),
+          tally.map(e => e.cas + " (" + e.label + ")").join(" + ") + " = " +
+          tally.reduce((a, e) => a + e.cas, 0) + " — fed into the counter below. ",
+          h("button", {
+            class: "chip neg", onclick: () => {
+              Store.del("deffire_tally");
+              CH.charger.fireCas = 0; Store.set("charge_state", CH);
+              buildCharge();
+            }
+          }, "clear"));
+        return box;
+      })(),
       h("div", { class: "flagrow" },
-        h("span", { class: "sub", style: "max-width:180px;" }, "Casualties taken by the CHARGER from defensive fire"),
+        h("span", { class: "sub", style: "max-width:180px;" }, "Casualties taken by the CHARGER from defensive fire (all firers combined)"),
         makeStepper(0, 15, CH.charger.fireCas || 0, v => { CH.charger.fireCas = v; refreshCharge(); }).el),
-      h("div", { class: "sub", id: "firecas-derived" })),
+      h("div", { class: "sub", id: "firecas-derived" }),
+      h("p", { class: "sub" }, "Separate from the \"casualties ALREADY on unit\" chips above — those reflect the unit's total BEFORE this charge's fire.")),
     h("div", { class: "card", id: "charge-roll-card" },
       h("h2", {}, "Roll the charge"),
       h("div", { class: "duelgrid" },

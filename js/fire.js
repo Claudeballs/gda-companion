@@ -35,6 +35,37 @@ function rollFire() {
   }, 50);
 }
 
+function renderFireTally() {
+  const card = $("#fire-tally");
+  if (!card) return;
+  const tally = Store.get("deffire_tally", []);
+  card.style.display = tally.length ? "block" : "none";
+  card.innerHTML = "";
+  if (!tally.length) return;
+  const sum = tally.reduce((a, e) => a + e.cas, 0);
+  card.append(h("h2", {}, "Defensive fire vs the charge — running total " + sum));
+  tally.forEach((e, i) => card.append(h("div", { class: "flagrow", style: "border-bottom:1px dashed var(--line);" },
+    h("span", { class: "sub", style: "flex:1;" }, (i + 1) + ". " + e.label),
+    h("b", {}, e.cas + " cas"),
+    h("button", {
+      class: "chip neg", onclick: () => {
+        tally.splice(i, 1); Store.set("deffire_tally", tally);
+        if (typeof setChargeFireCas === "function") setChargeFireCas(tally.reduce((a, x) => a + x.cas, 0));
+        renderFireTally();
+      }
+    }, "✕"))));
+  card.append(
+    h("p", { class: "sub" }, "This total feeds the CHARGER's fire-casualty band on the Charge tab automatically."),
+    h("button", { class: "bigbtn", onclick: () => showTab("charge") }, "→ Back to the charge"),
+    h("button", {
+      class: "bigbtn alt", onclick: () => {
+        Store.del("deffire_tally");
+        if (typeof setChargeFireCas === "function") setChargeFireCas(0);
+        renderFireTally();
+      }
+    }, "Clear tally (new charge)"));
+}
+
 function fireReroll2D6() {
   if (!FIR.dieApis) return;
   FI.dice = [FIR.dieApis[0].roll(d6()), FIR.dieApis[1].roll(d6())];
@@ -211,6 +242,7 @@ function buildFire() {
 
   root.append(card);
   root.append(h("div", { class: "card resultpanel", id: "fire-out" }));
+  root.append(h("div", { class: "card", id: "fire-tally", style: "display:none" }));
 
   // verified rules cards
   const rules = h("div", { class: "card", id: "fire-rules" }, h("h2", {}, "Fire rules (verified)"));
@@ -295,8 +327,29 @@ function fireOut() {
   total = Math.floor(total);
   chain.push("round down → " + total);
 
+  FIR.lastTotal = total;
+  FIR.lastLabel = (FI.mode === "infantry" ? FIRING_LINES[lineKey].label : FIRING_LINES[lineKey].label) +
+    (FI.mode === "artillery" ? " (battery)" : "");
   out.append(h("div", { class: "bigdiff good" }, total + " casualt" + (total === 1 ? "y" : "ies")));
   out.append(h("p", { class: "totalsub" }, chain.join("  ·  ")));
+
+  // defensive-fire tally: several firers shoot at one charger (closing
+  // volley + supporting battery + skirmishers) — bank each result and
+  // the running total feeds the Charge tab's fire-casualty band.
+  out.append(h("button", {
+    class: "bigbtn alt", onclick: ev => {
+      const tally = Store.get("deffire_tally", []);
+      tally.push({ label: FIR.lastLabel, cas: FIR.lastTotal });
+      Store.set("deffire_tally", tally);
+      const sum = tally.reduce((a, e) => a + e.cas, 0);
+      if (typeof setChargeFireCas === "function") setChargeFireCas(sum);
+      ev.target.textContent = "✓ added — tally now " + sum + " (fed to the Charge tab)";
+      ev.target.disabled = true;
+      renderFireTally();
+      buzz(15);
+    }
+  }, "➕ Add to defensive-fire tally (vs the charge)"));
+  renderFireTally();
   for (const f of flags) out.append(h("p", { class: "note" }, f));
   // Manual mode only: prompt for unrolled bonus dice. After an app
   // roll the bonus dice are already decided — misses are misses, no
