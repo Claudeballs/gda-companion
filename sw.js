@@ -5,7 +5,7 @@
 /* NOTE: index.html asset URLs carry ?v=N for browser-cache busting —
    bump BOTH that and this VERSION on every deploy. The fetch handler
    matches with ignoreSearch so the precache serves any ?v=. */
-const VERSION = "gda-v12";
+const VERSION = "gda-v13";
 const ASSETS = [
   "./",
   "./index.html",

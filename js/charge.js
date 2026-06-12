@@ -501,7 +501,61 @@ function refreshCharge() {
     }
     res.append(h("div", { class: "outcome " + (diff >= 1 ? "good" : "bad") }, outcome));
     if (/Volley!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[0]));
-    if (/Victory!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[1]));
+
+    /* ---- follow-up actions the result demands, right here ---- */
+    if (/Victory!/.test(outcome) && winnerSide === CH.charger) {
+      const isCav = CH.charger.type === "cav";
+      res.append(h("p", { class: "note" },
+        "Victory! — the winner MUST now choose: Charge On (" + (isCav ? "+5D6\"" : "+3D6\"") + ") or Take Ground." +
+        (colKey === "cavVsInfArty" ? " This result also costs the winner 1 casualty; the defender is Ridden Down." : "")));
+      const chargeOnBtn = h("button", {
+        class: "bigbtn", onclick: () => {
+          const n = isCav ? 5 : 3;
+          const rolls = Array.from({ length: n }, () => d6());
+          const dist = rolls.reduce((a, b) => a + b, 0);
+          buzz(30);
+          const resultRow = h("div", {},
+            h("div", { class: "outcome good" }, "CHARGE ON: " + n + "D6 → " + rolls.join("+") + " = +" + dist + "\" move"),
+            h("button", {
+              class: "bigbtn", onclick: () => {
+                CH.charger.chargingOn = true;       // +1 on the follow-on test
+                CH.charger.fireCas = 0;             // new target's fire hasn't happened
+                CH.defender = blankSide("defender");
+                Store.set("charge_state", CH);
+                chrReset(); buildCharge();
+              }
+            }, "Set up the follow-on charge → (Charging On +1 pre-ticked)"));
+          chargeOnBtn.replaceWith(resultRow);
+          takeGroundBtn.remove();
+        }
+      }, "⚡ CHARGE ON — roll the " + (isCav ? "5D6\"" : "3D6\"") + " now");
+      const takeGroundBtn = h("button", {
+        class: "bigbtn alt", onclick: () => {
+          takeGroundBtn.replaceWith(h("p", { class: "outcome good" }, "TAKE GROUND — occupy the beaten enemy's position. Charge complete."));
+          chargeOnBtn.remove();
+        }
+      }, "🚩 TAKE GROUND — occupy their position, stop there");
+      res.append(chargeOnBtn, takeGroundBtn);
+    }
+    if (/Rout 1D6/.test(outcome)) {
+      const b = h("button", {
+        class: "bigbtn alt", onclick: () => {
+          const v = d6(); buzz(20);
+          b.replaceWith(h("p", { class: "outcome bad" }, "Defender's rout roll: 1D6 → " + v));
+        }
+      }, "Roll the defender's rout (1D6)");
+      res.append(b);
+    }
+    if (/Retreat 1D3/.test(outcome)) {
+      const who = /Def Retreat/.test(outcome) ? "defender's" : "loser's";
+      const b = h("button", {
+        class: "bigbtn alt", onclick: () => {
+          const v = Math.ceil(d6() / 2); buzz(20);
+          b.replaceWith(h("p", { class: "outcome bad" }, "The " + who + " retreat roll: 1D3 → " + v));
+        }
+      }, "Roll the " + who + " retreat (1D3)");
+      res.append(b);
+    }
     if (/Melee|Élan/.test(outcome)) {
       res.append(h("button", { class: "bigbtn", onclick: () => openMelee(CH, outcome) }, "Resolve melee now →"));
       res.append(h("button", {
