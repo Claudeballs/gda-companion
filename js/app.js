@@ -34,7 +34,7 @@ const buzz = ms => { try { navigator.vibrate && navigator.vibrate(ms || 30); } c
 /* ---------- tabs ---------- */
 const TABS = [
   { id: "charge", label: "Charge", icon: "⚔️" },
-  { id: "rolloff", label: "Roll-Off", icon: "🎲" },
+  { id: "rolloff", label: "Duel", icon: "🤝" },
   { id: "fire", label: "Fire", icon: "💥" },
   { id: "tracker", label: "Tracker", icon: "🗺️" },
   { id: "procedures", label: "Steps", icon: "📋" },

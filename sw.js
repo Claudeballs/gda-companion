@@ -2,13 +2,16 @@
    Strategy: network-first with cache fallback. Online users always get
    the latest deploy; offline users get the full cached app. Bump
    VERSION on every deploy that changes files. */
-const VERSION = "gda-v5";
+const VERSION = "gda-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./css/app.css",
+  "./js/vendor/qrcode-gen.js",
+  "./js/vendor/jsqr.js",
   "./js/data.js",
   "./js/app.js",
+  "./js/pair.js",
   "./js/charge.js",
   "./js/melee.js",
   "./js/rolloff.js",

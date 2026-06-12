@@ -31,9 +31,14 @@ State (tracker, calculator inputs, duel log, theme) persists in
 | 7 | Procedures + ADC taskings + dispersal card | ✅ |
 | 8 | Terrain + Nations + Tactics | ✅ |
 | 9 | Search | ✅ |
-| 10 | Roll-Off Mode 2 (WebRTC paired, QR signalling) | ⏳ not yet built |
+| 10 | Duel paired mode (WebRTC + QR signalling, commit-reveal fair dice) | ✅ loopback-tested; needs a real two-phone shakedown |
 | 11 | Phase 2 (summary PNG, photo log, setup wizard) | ⏳ after §11 sign-off |
-| 12 | PWA wrapper (manifest + service worker) | ⏳ not yet built |
+| 12 | PWA wrapper (manifest + service worker) | ✅ |
+
+Note: the Charge tab owns the full single-phone charge flow (setup →
+defensive fire → animated roll → supports → highlighted result). The
+Duel tab is for TWO phones (or plain single-phone roll-offs like
+initiative). Vendored QR libs: qrcode-generator (MIT), jsQR (Apache-2.0).
 
 ## ⚠ Before club use — umpire sign-off (§10)
 
