@@ -15,7 +15,7 @@ function blankSide(role) {
   return {
     role, nation: "—", type: "inf", grade: "Line", formation: "line", unformed: false,
     garrison: false, mob: false, supports: [], general: false,
-    brigade: null, unitCas: null, fireCas: 0,
+    brigade: null, alreadyCas: 0, fireCas: 0,
     chargingOn: false, heavyCav: false, lancers: false, campaignCav: false,
     narrowFront: false, flanked: false, flankRear: false,
     dice: [0, 0]
@@ -80,7 +80,17 @@ function computeChargeMods(side, opp) {
     }
   }
 
-  if (side.unitCas) mods.push({ label: side.unitCas + " casualties on unit", val: CHARGE_MODS.charger.unitCasualties[side.unitCas] });
+  // fatigue is CUMULATIVE: the charger's defensive-fire casualties
+  // count toward its total IMMEDIATELY, so fire can tip the unit over
+  // the 4+/8+ threshold for this very test (Andy, 13 Jun).
+  const cum = (side.alreadyCas || 0) + (isCharger ? (side.fireCas || 0) : 0);
+  if (cum >= 4) {
+    const band = cum >= 8 ? "8+" : "4+";
+    const src = isCharger && side.fireCas
+      ? cum + " total casualties (" + (side.alreadyCas || 0) + " before + " + side.fireCas + " from defensive fire)"
+      : cum + " casualties on unit";
+    mods.push({ label: src + " — fatigue " + band, val: CHARGE_MODS.charger.unitCasualties[band] });
+  }
   if (side.brigade) mods.push({ label: "Brigade " + side.brigade, val: CHARGE_MODS.charger.brigadeState[side.brigade] });
 
   if (!isCharger) {
@@ -146,6 +156,14 @@ function buildCharge() {
     CH.charger.fireCas = { "2": 2, "3-4": 3, "5+": 5 }[CH.charger.chargeCas] || 0;
     delete CH.charger.chargeCas;
   }
+  // migrate band-chip fatigue → numeric (fatigue is CUMULATIVE with
+  // this charge's fire casualties — needs a real number to add to)
+  for (const s of [CH.charger, CH.defender]) {
+    if (s.alreadyCas === undefined) {
+      s.alreadyCas = { "4+": 4, "8+": 8 }[s.unitCas] || 0;
+      delete s.unitCas;
+    }
+  }
   // session-scoped roll state never persists (dice can't be replayed from storage)
   chrReset();
 
@@ -183,7 +201,7 @@ function buildCharge() {
         h("span", { class: "sub", style: "max-width:180px;" }, "Casualties taken by the CHARGER from defensive fire (all firers combined)"),
         makeStepper(0, 15, CH.charger.fireCas || 0, v => { CH.charger.fireCas = v; refreshCharge(); }).el),
       h("div", { class: "sub", id: "firecas-derived" }),
-      h("p", { class: "sub" }, "Separate from the \"casualties ALREADY on unit\" chips above — those reflect the unit's total BEFORE this charge's fire.")),
+      h("p", { class: "sub" }, "Fatigue is CUMULATIVE: these fire casualties also add to the charger's \"already on unit\" total automatically — if they tip it past 4+ or 8+, the fatigue penalty applies to this same test (see the why-list).")),
     h("div", { class: "card", id: "charge-roll-card" },
       h("h2", {}, "Roll the charge"),
       h("div", { class: "duelgrid" },
@@ -318,10 +336,10 @@ function chargeSideCard(side, opp) {
     [{ v: "hesitant", l: "Hesitant", sub: "−1", allowOff: true }, { v: "faltering", l: "Faltering", sub: "−1", allowOff: true }, { v: "demoralised", l: "Demoralised", sub: "−1", allowOff: true }],
     side.brigade, v => { side.brigade = v; refreshCharge(); }));
 
-  card.append(h("div", { class: "grouplabel" }, "Casualties ALREADY on unit (fatigue, before this charge)"));
-  card.append(singleSelect(
-    [{ v: null, l: "0–3" }, { v: "4+", l: "4–7", sub: "−1" }, { v: "8+", l: "8+", sub: "−2" }],
-    side.unitCas, v => { side.unitCas = v; refreshCharge(); }));
+  card.append(h("div", { class: "grouplabel" }, "Casualties ALREADY on unit (fatigue total before this charge)"));
+  card.append(h("div", { class: "flagrow" },
+    makeStepper(0, 20, side.alreadyCas || 0, v => { side.alreadyCas = v; refreshCharge(); }).el,
+    h("span", { class: "sub" }, "4+ = −1 · 8+ = −2" + (isC ? " — this charge's fire casualties ADD to this automatically (cumulative)" : ""))));
   // charge casualties from defensive fire are entered in the
   // "Defensive fire" stage of the roll card, not here — they don't
   // exist until the fire has happened.
