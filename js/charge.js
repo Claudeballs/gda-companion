@@ -160,7 +160,14 @@ function buildCharge() {
       h("div", { class: "duelgrid" },
         rollPanel(CH.charger), rollPanel(CH.defender)),
       h("button", { class: "bigbtn", id: "charge-roll-btn", onclick: rollCharge }, "⚔️ ROLL THE CHARGE — both sides 2D6"),
-      h("button", { class: "bigbtn alt", id: "charge-new-btn", style: "display:none", onclick: () => { chrReset(); buildCharge(); } }, "New charge (keep setups)"),
+      h("button", { class: "bigbtn alt", id: "charge-new-btn", style: "display:none", onclick: () => { chrReset(); buildCharge(); } }, "New charge — SAME troops (fresh dice, setups kept)"),
+      h("button", {
+        class: "bigbtn alt", id: "charge-clear-btn", style: "display:none", onclick: () => {
+          CH = { charger: blankSide("charger"), defender: blankSide("defender") };
+          Store.set("charge_state", CH);
+          chrReset(); buildCharge();
+        }
+      }, "New charge — DIFFERENT troops (clear both sides)"),
       h("details", {},
         h("summary", {}, "dice were rolled on the table — enter them instead"),
         manualDiceRow(CH.charger), manualDiceRow(CH.defender))),
@@ -322,6 +329,7 @@ function rollCharge() {
   }
   $("#charge-roll-btn").style.display = "none";
   $("#charge-new-btn").style.display = "block";
+  $("#charge-clear-btn").style.display = "block";
   // setTimeout, NOT requestAnimationFrame: rAF is suspended in hidden/
   // backgrounded tabs, which left the roll permanently stuck.
   setTimeout(() => {
