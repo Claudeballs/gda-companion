@@ -29,13 +29,30 @@ const MEL_UNIT_CHIPS = [
 function meleeUnitInit(label, lead) {
   return { label, lead, inFight: !!lead, type: "infantry", chips: [], gradeAbove: 0, flankRear: false };
 }
-function meleeSideInit(name, supports) {
-  return {
+function meleeSideInit(name, supports, preset) {
+  const side = {
     name, elan: false, elanAttackCol: false, cas: 0, curCas: 0, dispPt: 12,
     units: [meleeUnitInit(name + " lead", true)]
       .concat((supports || []).map((s, i) => meleeUnitInit("Support " + (i + 1) + (s.degraded ? " (degraded)" : ""), false)))
   };
+  if (preset) {
+    if (preset.leadType) side.units[0].type = preset.leadType;
+    if (preset.elan) side.elan = true;
+    if (preset.leadUnformed) side.units[0].chips.push("unf");
+  }
+  return side;
 }
+
+/* what the charge RESULT means for melee round 1 — carried, not re-keyed */
+function meleeCarryFromOutcome(outcome) {
+  const carry = { chargerElan: false, chargerUnformed: false, defenderUnformed: false };
+  if (!outcome) return carry;
+  if (/^Élan/.test(outcome)) carry.chargerElan = true;            // "Élan / Def Melee Unformed"
+  if (/Def Melee Unformed/.test(outcome)) carry.defenderUnformed = true;
+  if (/^Melee Unformed/.test(outcome)) carry.chargerUnformed = true; // "Melee Unformed / C-charge"
+  return carry;
+}
+const meleeTypeOf = t => t === "cav" ? "cavalry" : t === "arty" ? "artillery" : "infantry";
 
 function unitCD(u, side) {
   if (!u.inFight) return 0;
@@ -52,22 +69,29 @@ function unitCD(u, side) {
   return Math.max(1, base + pos + neg);    // min 1 CD after modifiers
 }
 
-function openMelee(chargeState, fromOutcome) {
+function openMelee(chargeState, fromOutcome, bankId) {
+  const carry = meleeCarryFromOutcome(fromOutcome);
+  const cName = chargeState && chargeState.charger.nation && chargeState.charger.nation !== "—" ? chargeState.charger.nation : "Charger";
+  const dName = chargeState && chargeState.defender.nation && chargeState.defender.nation !== "—" ? chargeState.defender.nation : "Defender";
   MEL = {
-    round: 1, fromOutcome: fromOutcome || null, matchup: "cavCavInfInf",
+    round: 1, fromOutcome: fromOutcome || null, matchup: "cavCavInfInf", bankId: bankId || null,
     sides: [
-      meleeSideInit("Charger", chargeState ? chargeState.charger.supports : []),
-      meleeSideInit("Defender", chargeState ? chargeState.defender.supports : [])
+      meleeSideInit(cName, chargeState ? chargeState.charger.supports : [],
+        { leadType: chargeState ? meleeTypeOf(chargeState.charger.type) : null, elan: carry.chargerElan, leadUnformed: carry.chargerUnformed }),
+      meleeSideInit(dName, chargeState ? chargeState.defender.supports : [],
+        { leadType: chargeState ? meleeTypeOf(chargeState.defender.type) : null, leadUnformed: carry.defenderUnformed })
     ]
   };
   if (chargeState) {
     if (chargeState.charger.type === "cav" && chargeState.defender.type !== "cav") MEL.matchup = "cavVsInf";
     if (chargeState.defender.formation === "garrison") MEL.matchup = "infVsBUA";
-    MEL.sides[0].units[0].type = chargeState.charger.type === "cav" ? "cavalry" : "infantry";
-    MEL.sides[1].units[0].type = chargeState.defender.type === "cav" ? "cavalry"
-      : chargeState.defender.type === "arty" ? "artillery" : "infantry";
   }
   renderMelee();
+}
+
+/* re-open a melee banked from an earlier charge this turn */
+function openMeleeBanked(entry) {
+  openMelee(entry.chargeState, entry.outcome, entry.id);
 }
 
 function meleePanel() {
@@ -163,6 +187,17 @@ function meleeSideCard(side) {
     u._cdBadge = cdBadge;
     card.append(box);
   }
+
+  // Converging charges (e.g. a town assault from several brigades)
+  // fight as ONE combined melee — extra leads join here in round 1.
+  card.append(h("button", {
+    class: "bigbtn alt", style: "min-height:44px;", onclick: () => {
+      const u = meleeUnitInit(side.name + " unit " + (side.units.length + 1) + (MEL.round > 1 ? " (R" + MEL.round + ")" : ""), false);
+      u.inFight = MEL.round === 1;   // round 1: joins now; later rounds: toggle like a reinforcement
+      side.units.push(u);
+      renderMelee();
+    }
+  }, "➕ add another unit (converging charge)"));
 
   const elan = makeChip("Élan", "+1 lead + ALL supports", on => { side.elan = on; meleeResult(); });
   if (side.elan) elan.classList.add("on");
@@ -271,7 +306,9 @@ function meleeResult() {
           detail: MEL.sides.map(s => s.name + " " + s.cas + " cas").join(" vs "),
           winner: winner ? winner.name + (flipped ? " (Pyrrhic flip)" : "") : "drawn"
         });
+        if (MEL.bankId && typeof MeleeQueue !== "undefined") MeleeQueue.remove(MEL.bankId);
         $("#meleepanel").style.display = "none";
+        if (typeof refreshCharge === "function") refreshCharge();
         buzz(30);
       }
     }, "Lock melee & log it"));

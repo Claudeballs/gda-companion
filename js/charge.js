@@ -103,6 +103,17 @@ function sideName(side) {
     : side.role === "charger" ? "CHARGER" : "DEFENDER";
 }
 
+/* ---------- melee queue — charges bank here, the Melee phase drains it.
+   GdA resolves all melees at the end of the turn; a big turn can bank
+   two or three charges (multiple brigades, town assaults) and resolve
+   them in order without losing any charge's context. ---------- */
+const MeleeQueue = {
+  all() { return Store.get("melee_queue", []); },
+  add(entry) { const q = MeleeQueue.all(); q.push(entry); Store.set("melee_queue", q); },
+  remove(id) { Store.set("melee_queue", MeleeQueue.all().filter(e => e.id !== id)); },
+  clear() { Store.del("melee_queue"); }
+};
+
 /* ---------- state ---------- */
 let CH;       // {charger, defender}
 let CHR;      // roll runtime: {rolled:{}, dieApis:{}, spent flags, logged}
@@ -154,6 +165,7 @@ function buildCharge() {
         h("summary", {}, "dice were rolled on the table — enter them instead"),
         manualDiceRow(CH.charger), manualDiceRow(CH.defender))),
     h("div", { class: "card resultpanel", id: "charge-result" }),
+    h("div", { class: "card", id: "melee-queue-card", style: "display:none" }),
     h("div", { class: "card", id: "charge-table-card" },
       h("h2", {}, "Charge results"),
       h("div", { id: "charge-table-holder" }),
@@ -472,8 +484,23 @@ function refreshCharge() {
     res.append(h("div", { class: "outcome " + (diff >= 1 ? "good" : "bad") }, outcome));
     if (/Volley!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[0]));
     if (/Victory!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[1]));
-    if (/Melee|Élan/.test(outcome))
-      res.append(h("button", { class: "bigbtn", onclick: () => openMelee(CH, outcome) }, "Resolve melee →"));
+    if (/Melee|Élan/.test(outcome)) {
+      res.append(h("button", { class: "bigbtn", onclick: () => openMelee(CH, outcome) }, "Resolve melee now →"));
+      res.append(h("button", {
+        class: "bigbtn alt", onclick: ev => {
+          MeleeQueue.add({
+            id: "mq" + Date.now().toString(36),
+            label: sideName(CH.charger) + " vs " + sideName(CH.defender) + " — " + outcome +
+              " (won by " + Math.abs(diff) + ")",
+            outcome,
+            chargeState: JSON.parse(JSON.stringify({ charger: CH.charger, defender: CH.defender }))
+          });
+          ev.target.textContent = "✓ banked — set up the next charge";
+          ev.target.disabled = true;
+          refreshCharge();
+        }
+      }, "🕐 Bank for the Melee phase (fight it at end of turn)"));
+    }
     if (!CHR.logged) {
       res.append(h("button", {
         class: "bigbtn alt", onclick: ev => {
@@ -496,4 +523,22 @@ function refreshCharge() {
   const holder = $("#charge-table-holder");
   holder.innerHTML = "";
   holder.append(renderChargeTable(band, colKey));
+
+  // melee-phase queue card
+  const mq = $("#melee-queue-card");
+  if (mq) {
+    const q = MeleeQueue.all();
+    mq.style.display = q.length ? "block" : "none";
+    mq.innerHTML = "";
+    if (q.length) {
+      mq.append(h("h2", {}, "Melee phase — " + q.length + " pending"),
+        h("p", { class: "sub" }, "All melees fight at the end of the turn. Each carries its charge context (Élan, Unformed, supports, nations) — resolve them in any order."));
+      q.forEach((e, i) => {
+        mq.append(h("div", { class: "flagrow", style: "border-bottom:1px dashed var(--line);padding:6px 0;" },
+          h("span", { class: "sub", style: "flex:1;" }, (i + 1) + ". " + e.label),
+          h("button", { class: "chip on", onclick: () => openMeleeBanked(e) }, "Resolve →"),
+          h("button", { class: "chip neg", onclick: () => { MeleeQueue.remove(e.id); refreshCharge(); } }, "✕")));
+      });
+    }
+  }
 }
