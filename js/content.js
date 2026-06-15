@@ -106,6 +106,27 @@ function buildProcedures() {
   indexCard("procedures", "melee-ref-card", "Melee tables CD modifiers results firefight fight on",
     JSON.stringify(MELEE_MODS).replace(/[{}"\[\]]/g, " ") + " " + MELEE_NOTES.join(" "));
 
+  /* Destiny table (verified pp93–94) */
+  const dz = h("div", { class: "card", id: "destiny-card" }, h("h2", {}, "Destiny (verified)"));
+  for (const n of DESTINY_NOTES) dz.append(h("p", { class: "note" }, n));
+  const dt = h("table", { class: "ft" });
+  dt.append(h("tr", {}, h("th", {}, "2D6"), h("th", {}, "Result")));
+  for (const r of DESTINY_TABLE)
+    dt.append(h("tr", {}, h("td", {}, r.lo === r.hi ? String(r.lo) : r.lo + "–" + r.hi),
+      h("td", { style: "text-align:left;" }, h("b", {}, r.title), h("div", { class: "sub" }, r.text))));
+  dz.append(dt);
+  root.append(dz);
+  indexCard("procedures", "destiny-card", "Destiny double 6 dishonour unsightly demise risk to general",
+    DESTINY_NOTES.join(" ") + " " + DESTINY_TABLE.map(r => r.title + " " + r.text).join(" "));
+
+  /* charge result glossary (verified pp49–50) */
+  const rg = h("div", { class: "card", id: "result-glossary-card" }, h("h2", {}, "Charge result meanings (verified)"));
+  for (const [tok, g] of Object.entries(RESULT_GLOSSARY))
+    rg.append(h("details", {}, h("summary", {}, tok), h("p", { class: "note" }, g.text)));
+  root.append(rg);
+  indexCard("procedures", "result-glossary-card", "charge result meanings take ground retire retreat rout ridden down volley elan melee",
+    Object.entries(RESULT_GLOSSARY).map(([t, g]) => t + " " + g.text).join(" "));
+
   /* the only items still open with the umpire (§10.7) */
   const vf = h("div", { class: "card", id: "verify-card" },
     h("h2", {}, "Open items with the umpire"),

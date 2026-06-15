@@ -172,6 +172,68 @@ function renderChargeTable(hlBand, hlCol) {
   return tbl;
 }
 
+/* ---------- shared Destiny resolver (charge + fire) ----------
+   Roll 2D6, show the verified Destiny result in big type. */
+function destinyPanel(headline) {
+  const wrap = h("div", {});
+  const btn = h("button", {
+    class: "bigbtn", style: "background:var(--accent2);color:#fff;", onclick: () => {
+      const a = d6(), b = d6(), score = a + b;
+      const r = destinyResult(score);
+      buzz(40);
+      btn.replaceWith(h("div", {},
+        h("div", { class: "outcome", style: "color:var(--accent2);" }, "DESTINY 2D6 → " + a + "+" + b + " = " + score),
+        h("div", { class: "outcome good" }, r.title),
+        h("p", { class: "note" }, r.text)));
+    }
+  }, "⚡ " + (headline || "DESTINY!") + " — roll 2D6 on the Destiny table");
+  wrap.append(btn);
+  return wrap;
+}
+
+/* "What happens now" — scan a result string for known tokens and
+   render each in plain language with casualty-roll buttons. */
+function resultActions(outcome, winnerName, loserName) {
+  const box = h("div", { class: "note", style: "text-align:left;" });
+  box.append(h("div", { style: "font-weight:800;color:var(--accent);margin-bottom:4px;" }, "What happens now"));
+  // longest tokens first so "Melee Unformed" matches before "Melee"
+  const tokens = Object.keys(RESULT_GLOSSARY).sort((a, b) => b.length - a.length);
+  const seen = [];
+  let scan = " " + outcome + " ";
+  for (const tok of tokens) {
+    if (scan.includes(tok)) { seen.push(tok); scan = scan.split(tok).join(" "); }
+  }
+  if (!seen.length) { box.append(h("p", { class: "sub" }, "See the result above.")); return box; }
+  for (const tok of seen) {
+    const g = RESULT_GLOSSARY[tok];
+    const whoLabel = g.who === "winner" ? winnerName : g.who === "loser" ? loserName : null;
+    const row = h("div", { style: "padding:5px 0;border-bottom:1px dashed var(--line);" },
+      h("b", {}, (whoLabel ? whoLabel + " — " : "") + tok),
+      h("div", { class: "sub" }, g.text));
+    // casualty roll button where the result costs casualties
+    if (g.cas === 1) {
+      row.append(h("p", { class: "sub" }, (loserName || "Loser") + " loses 1 casualty (automatic)."));
+    } else if (g.cas === "1D3" || g.cas === "1D6") {
+      const die = g.cas;
+      const rb = h("button", { class: "bigbtn alt", style: "min-height:42px;margin:4px 0;" });
+      rb.textContent = "Roll " + (loserName || "the loser") + "'s " + die + " casualties";
+      rb.addEventListener("click", () => {
+        const roll = d6();
+        const cas = die === "1D6" ? roll : oneD3(roll);
+        buzz(20);
+        rb.replaceWith(h("p", { class: "outcome bad" },
+          (loserName || "Loser") + " loses " + cas + " casualt" + (cas === 1 ? "y" : "ies") +
+          " (" + die + " → " + roll + ")"));
+      });
+      row.append(rb);
+    } else if (g.cas === "disperse") {
+      row.append(h("p", { class: "sub" }, (loserName || "Loser") + " is removed from play (Dispersed)."));
+    }
+    box.append(row);
+  }
+  return box;
+}
+
 /* ---------- session log (Roll-Off / melee audit trail) ---------- */
 const SessionLog = {
   all() { return Store.get("log", []); },

@@ -303,7 +303,22 @@ function meleeResult() {
   // verified results band for the matchup
   const band = meleeBand(diff && !flipped ? diff : (winner ? diff : 0));
   const bandRow = MELEE_RESULTS[winner ? meleeBand(diff) : "DRAW"];
-  res.append(h("div", { class: "outcome good" }, bandRow[MEL.matchup]));
+  const bandText = bandRow[MEL.matchup];
+  res.append(h("div", { class: "outcome good" }, bandText));
+
+  // plain-language meanings for whichever movement outcomes appear
+  const lc = bandText.toLowerCase();
+  const meanings = MELEE_MOVE_GLOSSARY.filter(([, frags]) => frags.some(t => lc.includes(t)));
+  if (meanings.length) {
+    const wn = winner ? winner.name : "neither side", ln = winner ? (winner === MEL.sides[0] ? MEL.sides[1] : MEL.sides[0]).name : "";
+    const box = h("div", { class: "note", style: "text-align:left;" },
+      h("div", { style: "font-weight:800;color:var(--accent);margin-bottom:4px;" },
+        winner ? "What happens now (" + wn + " beat " + ln + ")" : "What happens now"));
+    for (const [label, , txt] of meanings)
+      box.append(h("div", { style: "padding:4px 0;border-bottom:1px dashed var(--line);" }, h("b", {}, label), h("div", { class: "sub" }, txt)));
+    res.append(box);
+  }
+
   if (!winner || meleeBand(diff) === "1" || MEL.matchup === "infVsBUA")
     res.append(h("p", { class: "note" }, MELEE_NOTES[0]));
   if (!winner && MEL.matchup === "cavCavInfInf")

@@ -276,14 +276,15 @@ function chargeSideCard(side, opp) {
   card.append(h("div", { class: "grouplabel" }, "Type"));
   const types = [{ v: "inf", l: "Infantry" }, { v: "cav", l: "Cavalry" }];
   if (!isC) types.push({ v: "arty", l: "Artillery" });
-  card.append(singleSelect(types, side.type, v => { side.type = v || side.type; refreshCharge(); }));
+  // rebuild on type change so conditional chips on BOTH cards refresh
+  card.append(singleSelect(types, side.type, v => { side.type = v || side.type; Store.set("charge_state", CH); buildCharge(); }));
 
   card.append(h("div", { class: "grouplabel" }, "Grade"));
   card.append(singleSelect(GRADES.map(g => ({ v: g, l: g })), side.grade, v => { side.grade = v || side.grade; refreshCharge(); }));
 
   card.append(h("div", { class: "grouplabel" }, "Formation"));
   const forms = [{ v: "line", l: "Line" }, { v: "column", l: "Column" }, { v: "square", l: "Square" }, { v: "garrison", l: "Garrison (BUA)" }];
-  card.append(singleSelect(forms, side.formation, v => { side.formation = v || side.formation; refreshCharge(); }));
+  card.append(singleSelect(forms, side.formation, v => { side.formation = v || side.formation; Store.set("charge_state", CH); buildCharge(); }));
   const unfChip = makeChip("Unformed", "−2", on => { side.unformed = on; refreshCharge(); }, { neg: true });
   if (side.unformed) unfChip.classList.add("on");
   card.append(h("div", { class: "chips" }, unfChip));
@@ -315,18 +316,23 @@ function chargeSideCard(side, opp) {
     if (side[key]) c.classList.add("on");
     sit.append(c);
   };
+  // Only show modifiers that can actually apply to this side's chosen
+  // type/target — keeps the common infantry charge to a handful of
+  // chips instead of a wall. (The maths already guards each, so any
+  // hidden toggle is ignored anyway.)
   tog("General attached", "grade up", "general");
+  const isCav = side.type === "cav";
   if (isC) {
     tog("Charging On", "+1", "chargingOn");
-    tog("Heavy cavalry", "+1", "heavyCav");
-    tog("Lancers vs inf", "+1", "lancers");
-    tog("Campaign cav vs Heavy", "−1", "campaignCav", true);
-    tog("Narrower frontage", "−1 cav", "narrowFront", true);
+    if (isCav) tog("Heavy cavalry", "+1", "heavyCav");
+    if (isCav && opp.type === "inf") tog("Lancers vs inf", "+1", "lancers");
+    if (isCav) tog("Campaign cav vs Heavy", "−1", "campaignCav", true);
+    if (isCav) tog("Narrower frontage", "−1", "narrowFront", true);
   } else {
     tog("Flanked", "−2", "flanked", true);
     tog("Charged in flank/rear", "−4", "flankRear", true);
-    tog("Column of mob", "no col bonus", "mob", true);
-    tog("Narrower frontage", "−1 cav", "narrowFront", true);
+    if (side.formation === "column") tog("Column of mob", "no col bonus", "mob", true);
+    if (isCav) tog("Narrower frontage", "−1", "narrowFront", true);
   }
   card.append(sit);
   card.append(h("div", { class: "sub", id: "suppress-" + side.role, style: "color:var(--warn);" }));
@@ -547,14 +553,21 @@ function refreshCharge() {
       res.append(h("div", { class: "bigdiff" }, "TIED"), h("div", { class: "sub" }, cTot + " apiece — row " + band.by));
     }
     res.append(h("div", { class: "outcome " + (diff >= 1 ? "good" : "bad") }, outcome));
-    if (/Volley!/.test(outcome)) res.append(h("p", { class: "note" }, CHARGE_RESULT_NOTES[0]));
+
+    // ── plain-language "what happens now" + casualty rolls ──
+    const wName = winnerSide ? sideName(winnerSide) : "Higher";
+    const lName = winnerSide ? sideName(winnerSide === CH.charger ? CH.defender : CH.charger) : "Lower";
+    res.append(resultActions(outcome, wName, lName));
+
+    // ── Destiny: unmodified double 6 on either side's charge dice ──
+    const cDouble6 = CH.charger.dice[0] === 6 && CH.charger.dice[1] === 6;
+    const dDouble6 = CH.defender.dice[0] === 6 && CH.defender.dice[1] === 6;
+    if (cDouble6) res.append(destinyPanel(sideName(CH.charger) + " rolled DOUBLE 6"));
+    if (dDouble6) res.append(destinyPanel(sideName(CH.defender) + " rolled DOUBLE 6"));
 
     /* ---- follow-up actions the result demands, right here ---- */
     if (/Victory!/.test(outcome) && winnerSide === CH.charger) {
       const isCav = CH.charger.type === "cav";
-      res.append(h("p", { class: "note" },
-        "Victory! — the winner MUST now choose: Charge On (" + (isCav ? "+5D6\"" : "+3D6\"") + ") or Take Ground." +
-        (colKey === "cavVsInfArty" ? " This result also costs the winner 1 casualty; the defender is Ridden Down." : "")));
       const chargeOnBtn = h("button", {
         class: "bigbtn", onclick: () => {
           const n = isCav ? 5 : 3;
@@ -583,25 +596,6 @@ function refreshCharge() {
         }
       }, "🚩 TAKE GROUND — occupy their position, stop there");
       res.append(chargeOnBtn, takeGroundBtn);
-    }
-    if (/Rout 1D6/.test(outcome)) {
-      const b = h("button", {
-        class: "bigbtn alt", onclick: () => {
-          const v = d6(); buzz(20);
-          b.replaceWith(h("p", { class: "outcome bad" }, "Defender's rout roll: 1D6 → " + v));
-        }
-      }, "Roll the defender's rout (1D6)");
-      res.append(b);
-    }
-    if (/Retreat 1D3/.test(outcome)) {
-      const who = /Def Retreat/.test(outcome) ? "defender's" : "loser's";
-      const b = h("button", {
-        class: "bigbtn alt", onclick: () => {
-          const v = Math.ceil(d6() / 2); buzz(20);
-          b.replaceWith(h("p", { class: "outcome bad" }, "The " + who + " retreat roll: 1D3 → " + v));
-        }
-      }, "Roll the " + who + " retreat (1D3)");
-      res.append(b);
     }
     if (/Melee|Élan/.test(outcome)) {
       res.append(h("button", { class: "bigbtn", onclick: () => openMelee(CH, outcome) }, "Resolve melee now →"));

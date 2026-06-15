@@ -297,19 +297,19 @@ function fireOut() {
   if (/FC/.test(cell)) flags.push("FC — battery takes a Fatigue Casualty (2 on Assault Fire; Elite/Large ignore the first)");
   if (/DT/.test(cell)) flags.push("DT — target takes a Discipline Test");
 
-  // doubles banner + re-roll (the effect of Destiny is not in the
-  // spec — flag it, offer the re-roll, point at the umpire)
+  // doubles: unmodified double 6 on the FIRE roll triggers Destiny
+  // (verified — infantry volley & artillery fire both qualify). Double
+  // 1 = Low on Ammunition for artillery only; nothing for infantry.
   const dbl = $("#fire-double");
   if (dbl) {
     dbl.innerHTML = "";
     const isD6 = FI.dice[0] === 6 && FI.dice[1] === 6;
     const isD1 = FI.dice[0] === 1 && FI.dice[1] === 1;
-    if (isD6 || isD1) {
-      let label = isD6 ? "⚡ DOUBLE 6 — DESTINY! Effect: ask the umpire."
-        : (FI.mode === "artillery" ? "💀 DOUBLE 1 — battery Low on Ammunition." : "💀 DOUBLE 1 — blunder! Effect: ask the umpire.");
-      dbl.append(h("div", { class: "trigbanner flash", style: "margin:6px 0;" }, label));
-      if (FIR.appRolled) dbl.append(h("button", { class: "bigbtn alt", style: "min-height:46px;", onclick: fireReroll2D6 },
-        "Re-roll the 2D6 (result will be highlighted)"));
+    if (isD6) {
+      dbl.append(h("div", { class: "trigbanner flash", style: "margin:6px 0;" }, "⚡ DOUBLE 6 — DESTINY!"));
+      dbl.append(destinyPanel("Firer rolled DOUBLE 6"));
+    } else if (isD1 && FI.mode === "artillery") {
+      dbl.append(h("div", { class: "trigbanner flash", style: "margin:6px 0;" }, "💀 DOUBLE 1 — battery now Low on Ammunition (−2 fire each future shot)."));
     }
   }
 

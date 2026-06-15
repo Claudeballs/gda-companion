@@ -1,4 +1,4 @@
-﻿window.GDA_VERSION = "17";   // shown on the Duel tab; bump with sw VERSION
+﻿window.GDA_VERSION = "19";   // shown on the Duel tab; bump with sw VERSION
 
 /* ============================================================
    GdA Companion — embedded rules data (SPEC v2, 2026-06-12).
@@ -307,6 +307,59 @@ const TACTICS_DEFEND = [
   ["Channel them into column.", "Fords, woods, walls and BUAs force the attacker into columns — whose fire is halved while your line fires full. Anchor flanks on terrain that makes every approach a column approach."],
   ["Shoot the infantry, not the guns.", "Counter-battery duels rarely decide anything. Your batteries' best work is putting charge-casualty modifiers (−1/−2/−3) on the assault brigades before contact — break the charge in the approach, not the gun line behind it."]
 ];
+
+/* ---------- plain-language result glossary (VERIFIED, rulebook pp49–50) ----------
+   Every charge/melee result token expanded into "what it means + what
+   to do now", so a conclusion is reached without opening the book.
+   cas: casualties the result costs the LOSING unit (null = none).      */
+const RESULT_GLOSSARY = {
+  "Victory!":        { who: "winner", cas: null, text: "Decisive win. You MUST now choose: Charge On (infantry +3D6\", cavalry +5D6\") into a fresh target, or Take the Ground." },
+  "Charge On":       { who: "winner", cas: null, text: "Continue the charge — roll the bonus move (inf +3D6\", cav +5D6\") and charge another target in reach, or Take the Ground." },
+  "Take Ground":     { who: "winner", cas: null, text: "Move up and occupy any part of the position the beaten enemy held. Keep your current facing — no wheel or manoeuvre." },
+  "Élan":            { who: "winner", cas: null, text: "Close to Melee with the Élan bonus: +1 Casualty Die (+2 if infantry in Attack Column) for the lead unit AND all supports." },
+  "Melee Unformed":  { who: "either",  cas: null, text: "Close to Melee, but this side fights Unformed (−1 CD) — it lost formation before contact. Supports not in the melee stay Formed." },
+  "Melee":           { who: "either",  cas: null, text: "Close to Melee. Units that can't reach base-to-base hold position. Resolve it on the melee resolver." },
+  "Counter-charge":  { who: "loser",   cas: null, text: "The defender closes to melee (cavalry counter-charge). A formed, in-command British line may instead counter-charge an Unformed attacker (no supports allowed)." },
+  "Stand":           { who: "loser",   cas: null, text: "The unit holds its position — no other effect." },
+  "Volley!":         { who: "either",  cas: null, text: "Chargers halt at 3\" and fire a volley: Large Line 4CD · Standard 3CD · Small 2CD · column 1CD (ignore all normal fire modifiers). Draw = lead stays Formed; lost by −1/−2 = lead Unformed. Supports still fire and stay Formed." },
+  "Retire":          { who: "loser",   cas: 1,    text: "Fall back the full Retire move (or behind a support) — now automatically Unformed. Lose 1 casualty. Supports Retire. (Massed-column attacker: this becomes a Retreat instead.)" },
+  "Retreat":         { who: "loser",   cas: "1D3", text: "Full Retreat move to the rear or behind a support. Lose 1D3 casualties. Supports Retire. Retreating artillery Disperses." },
+  "Rout":            { who: "loser",   cas: "1D6", text: "Immediately Rout — full Rout move. Lose 1D6 casualties. If you can't end within 3\" of a friendly formed unit you Disperse. Supports Retire. Brigade gets a Falter marker; routed artillery is removed." },
+  "Ridden Down":     { who: "loser",   cas: "disperse", text: "Dispersed and removed from play. Supports Retire. Brigade gets a Falter marker. The winning lead cavalry takes 1 casualty." }
+};
+/* 1D3 casualty mapping (rulebook p50): 1–2 → 1, 3–4 → 2, 5–6 → 3 */
+function oneD3(roll) { return roll <= 2 ? 1 : roll <= 4 ? 2 : 3; }
+
+/* melee MOVEMENT outcomes (no extra casualty roll — the CD hits already
+   were the casualties). Plain meanings for the result strings. */
+const MELEE_MOVE_GLOSSARY = [
+  // [display label, [lowercase match fragments], meaning]
+  ["Takes Ground",        ["takes ground", "take the ground"], "Winner moves up and occupies the enemy's position, keeping its facing."],
+  ["Rout",                ["rout"],                 "Loser routs to the rear; if it can't end within 3\" of a friendly formed unit it Disperses. Its brigade gets a Falter marker."],
+  ["Retreat",             ["retreat"],              "Loser falls back a full Retreat move; its supports Retire; retreating artillery Disperses."],
+  ["Return to Own Lines", ["return to own lines"],  "Beaten cavalry pulls back to its own lines and reforms — it is NOT routed and takes no falter."],
+  ["Disperse",            ["disperse"],             "Unit is destroyed and removed from play; its brigade gets a Falter marker."],
+  ["Stand",               ["stand"],                "The unit holds — the attack failed to break it."],
+  ["Unformed",            ["unformed"],             "The unit taking the ground is now Unformed until a full Movement phase reforms it."]
+];
+
+/* ---------- Destiny (VERIFIED, rulebook pp93–94) ----------
+   Replaces every "double 6 — ask the umpire" with the real result. */
+const DESTINY_TABLE = [
+  { lo: 2,  hi: 2,  title: "DISHONOUR!",              text: "The opposing brigadier is thrown from his horse and flees on foot — the OPPOSING brigade Falters. (Risk to General: instead YOUR general surrenders and YOUR brigade Falters.)" },
+  { lo: 3,  hi: 6,  title: "STEADY THE BUFFS!",       text: "Recover one casualty, OR Melee with Élan." },
+  { lo: 7,  hi: 8,  title: "DISCIPLINE!",             text: "Recover one casualty, OR reform / change formation / wheel (NOT in the Charge phase), OR Melee with Élan." },
+  { lo: 9,  hi: 9,  title: "DREADFUL LOOKING FELLOWS!", text: "Recover TWO casualties, OR reform / change formation / wheel (NOT in the Charge phase), OR Melee with Élan." },
+  { lo: 10, hi: 12, title: "UNSIGHTLY DEMISE!",       text: "A howitzer shell ends the opposing brigadier — the OPPOSING brigade Falters. (Risk to General: instead YOUR general is killed and YOUR brigade Falters.)" }
+];
+const DESTINY_NOTES = [
+  "Destiny triggers on any UNMODIFIED double 6 in a Charge, an Infantry Volley, or Artillery Fire. Roll 2D6 and read the table — the benefit always goes to the unit that rolled the double 6.",
+  "A double 6 in a Discipline Test simply recovers one casualty — there is no Destiny roll.",
+  "Risk to General: an attached general who LOST a charge or melee with a Retire/Retreat result rolls here — only a 2 or a 10–12 affects him."
+];
+function destinyResult(score) {
+  return DESTINY_TABLE.find(r => score >= r.lo && score <= r.hi) || DESTINY_TABLE[0];
+}
 
 /* §10.7 — the only items still open with the umpire */
 const VERIFY_LIST = [
